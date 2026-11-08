@@ -216,7 +216,14 @@ export async function execute(k: Kitty, action: AgentAction) {
         const owedBase = round2(Math.max(0, m.share - m.paid));
         if (owedBase <= 0) throw new Error(`${m.name} has already paid in full`);
         const local = await convert(owedBase, k.baseCurrency, m.currency);
-        if (m.invoiceId) await paypal.recordInvoicePayment(m.invoiceId, local, m.currency, `Paid in cash to the organiser (${k.name})`);
+        if (m.invoiceId) {
+          try {
+            await paypal.recordInvoicePayment(m.invoiceId, local, m.currency, `Paid in cash to the organiser (${k.name})`);
+          } catch (e) {
+            // PayPal already has this invoice as paid: nothing to record there, only update the kitty.
+            if (!/does not support payment processing/i.test((e as Error).message)) throw e;
+          }
+        }
         await recordContribution(k, m, { amount: local, currency: m.currency }, m.invoiceId ?? "cash");
         log(k, { actor: "member", actorName: String(p.byName ?? "Organiser"), kind: "payment", title: `${m.name}'s share recorded as paid in cash`, detail: m.invoiceId ? `Recorded on PayPal invoice ${m.invoiceId}` : "No invoice yet, recorded in the kitty only" });
         break;
@@ -298,6 +305,9 @@ export async function recordContribution(
 ) {
   const base = await convert(local.amount, local.currency, k.baseCurrency);
   member.paid = round2(member.paid + base);
+  // Currency conversion rounds both ways, so paying £834.12 for a €1,000 share can land at €999.99.
+  // A gap under 50 cents is rounding, not debt.
+  if (member.share - member.paid > 0 && member.share - member.paid < 0.5) member.paid = member.share;
   member.paidLocal = local;
   if (member.paid >= member.share) member.paidAt = new Date().toISOString();
   member.persona = personaOf(member, k.mandate.deadline);

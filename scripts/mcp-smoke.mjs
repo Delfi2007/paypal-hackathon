@@ -16,8 +16,9 @@ const ok = (c, m) => { console.log(c ? "PASS" : "FAIL", "-", m); if (!c) process
 const stamp = Date.now().toString(36);
 await web("POST", "/api/auth/signup", { name: "Agent Owner", email: `agent.${stamp}@test.dev`, password: "correct-horse-1", currency: "EUR" });
 const created = await web("POST", "/api/kitties", { draft: { name: "MCP trip", destination: "Porto", tagline: "", baseCurrency: "EUR", totalBudget: 3000, perPaymentCap: 1000, quorum: 1, deadlineDays: 7, members: [{ name: "a" }, { name: "b" }], vendors: [{ name: "Hotel Aurora", email: "sb-ukfe353773873@personal.example.com", category: "stay", approved: true }, { name: "Surf School", email: "sb-ukfe353773873@personal.example.com", category: "activities", approved: false }] } });
-const o = await web("POST", "/api/paypal/orders", { kittyId: created.id });
-await web("POST", `/api/paypal/orders/${o.id}/capture`, { kittyId: created.id });
+// Fund the pool without a PayPal buyer login: the organiser records their own share as paid.
+const meId = (await web("GET", `/api/kitties/${created.id}`)).me;
+await web("POST", `/api/kitties/${created.id}/action`, { action: { type: "record_cash", params: { memberId: meId } } });
 const { token } = await web("POST", "/api/auth/tokens", { name: "smoke test" });
 ok(token?.startsWith("kty_"), "agent token minted");
 

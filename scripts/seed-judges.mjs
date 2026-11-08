@@ -26,7 +26,8 @@ for (const p of PEOPLE) {
   const s = session();
   let r = await s("POST", "/api/auth/signup", { ...p, password: PASSWORD });
   if (r.status === 409) r = await s("POST", "/api/auth/login", { email: p.email, password: PASSWORD });
-  if (r.status !== 200) throw new Error(`${p.email}: ${r.j.error}`);
+  if (r.status !== 200) throw new Error(p.email + ": " + r.j.error);
+  await s("POST", "/api/auth/profile", { paypalEmail: process.env.PAYEE_EMAIL || "sb-ukfe353773873@personal.example.com" });
   sessions.push(s);
 }
 
@@ -54,6 +55,19 @@ if (Array.isArray(existing) && existing.find((k) => k.name === "Goa Trip (judge 
     await s("POST", `/api/kitties/${id}/sign`);
   }
   console.log("created group", id);
+}
+
+// Give the demo group some real history: PayPal invoices, two friends settled, one reminder.
+const state = (await owner("GET", `/api/kitties/${id}`)).j;
+if (state.kitty && !state.kitty.members.some((m) => m.invoiceId)) {
+  const act = (s, action, label) => s("POST", `/api/kitties/${id}/action`, { action, label });
+  await act(owner, { type: "request_contributions", params: {} }, "Request everyone's share");
+  const fresh = (await owner("GET", `/api/kitties/${id}`)).j.kitty;
+  const byName = (n) => fresh.members.find((m) => m.name.startsWith(n));
+  await act(owner, { type: "record_cash", params: { memberId: byName("Delfi").id } }, "Record Delfi's share as paid in cash");
+  await act(owner, { type: "record_cash", params: { memberId: byName("Mukesh").id } }, "Record Mukesh's share as paid in cash");
+  await act(owner, { type: "send_reminders", params: { memberIds: [byName("Nambert").id] } }, "Remind Nambert");
+  console.log("added demo history: invoices, two settled friends, one reminder");
 }
 
 console.log("\nJudge test accounts (password for all: " + PASSWORD + ")");

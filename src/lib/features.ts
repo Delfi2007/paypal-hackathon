@@ -23,6 +23,7 @@ export const FEATURES: Feature[] = [
   { n: "09", title: "Mandate from one sentence", blurb: "Describe the trip and Kitty drafts the budget, cap, payees and quorum for everyone to sign.", page: "/new", pageName: "New kitty", tag: "plus" },
   { n: "10", title: "Swipe-to-pay keypad", blurb: "Type an amount, do quick maths, swipe to confirm. The policy engine still decides.", page: "send", pageName: "Pay vendor", tag: "plus" },
   { n: "11", title: "Member checkout page", blurb: "Each friend gets a personal pay link with live FX and PayPal Smart Buttons.", page: "/pay", pageName: "Pay link", paypal: "JS SDK Buttons", tag: "plus" },
+  { n: "12", title: "AG Studio scoreboard + nudge-bot", blurb: "A live AG Studio dashboard of who has paid and who still owes, plus a bot that sends each friend a reminder in their own tone.", page: "scoreboard", pageName: "Scoreboard", tag: "plus" },
 ];
 
 export function featureHref(f: Feature) {
