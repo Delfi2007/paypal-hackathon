@@ -25,8 +25,6 @@ export const FEATURES: Feature[] = [
   { n: "11", title: "Member checkout page", blurb: "Each friend gets a personal pay link with live FX and PayPal Smart Buttons.", page: "/pay", pageName: "Pay link", paypal: "JS SDK Buttons", tag: "plus" },
 ];
 
-export function featureHref(f: Feature, kittyId = "santorini", memberId = "m_mukesh") {
-  if (f.page === "/pay") return `/pay/${kittyId}/${memberId}`;
-  if (f.page.startsWith("/")) return f.page;
-  return `/k/${kittyId}${f.page ? `/${f.page}` : ""}`;
+export function featureHref(f: Feature) {
+  return f.page.startsWith("/") && f.page !== "/pay" ? f.page : "/app";
 }

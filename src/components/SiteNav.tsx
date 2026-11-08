@@ -4,16 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { Logo } from "./kit";
+import { NotificationBell, UserMenu, useMe } from "./session";
 
 const LINKS = [
   { href: "/", label: "Home" },
   { href: "/#features", label: "Features" },
-  { href: "/k/santorini", label: "Live demo" },
+  { href: "/app", label: "My kitties" },
   { href: "/new", label: "New kitty" },
 ];
 
 export function SiteNav({ light = false }: { light?: boolean }) {
   const path = usePathname();
+  const { user } = useMe(false);
   return (
     <nav className="relative z-30 flex items-center gap-4 w-full">
       <Logo light={light} />
@@ -30,9 +32,21 @@ export function SiteNav({ light = false }: { light?: boolean }) {
           );
         })}
       </ul>
-      <Link href="/k/santorini" className={`btn !py-2 !px-4 text-sm ml-auto md:ml-0 ${light ? "bg-white text-ink hover:bg-white/90" : "btn-dark"}`}>
-        Try the demo <ArrowRight size={14} />
-      </Link>
+      <div className="ml-auto md:ml-0 flex items-center gap-2">
+        {user ? (
+          <>
+            <NotificationBell />
+            <UserMenu user={user} />
+          </>
+        ) : (
+          <>
+            <Link href="/login" className={`btn !py-2 !px-4 text-sm ${light ? "bg-white/15 backdrop-blur border border-white/30 text-white" : "btn-ghost"}`}>Log in</Link>
+            <Link href="/signup" className={`btn !py-2 !px-4 text-sm ${light ? "bg-white text-ink hover:bg-white/90" : "btn-dark"}`}>
+              Get started <ArrowRight size={14} />
+            </Link>
+          </>
+        )}
+      </div>
     </nav>
   );
 }

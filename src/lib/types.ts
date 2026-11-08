@@ -14,8 +14,13 @@ export interface Member {
   share: number; // share owed, in kitty base currency
   paid: number; // amount received, in kitty base currency
   paidLocal?: { amount: number; currency: Currency };
-  persona: Persona; // drives reminder tone
+  persona: Persona; // drives reminder tone, derived from real payment behaviour
   remindersSent: number;
+  lastRemindedAt?: string;
+  paidAt?: string;
+  paypalEmail?: string; // the member's PayPal (sandbox) email
+  role?: "organizer" | "member";
+  joinedAt?: string;
   invoiceId?: string;
   orderId?: string;
   avatarHue: number;
@@ -34,6 +39,7 @@ export interface Vendor {
   name: string;
   email: string; // PayPal receiver email
   category: VendorCategory;
+  addedBy?: string;
 }
 
 export interface Mandate {
@@ -118,6 +124,8 @@ export interface LedgerEvent {
   policy?: PolicyResult;
   amount?: number;
   ref?: string; // PayPal id
+  prev?: string; // hash chain: hash of the previous event
+  hash?: string; // sha256(prev + event body): tamper-evident audit trail
   messages?: { to: string; text: string }[];
 }
 
@@ -152,6 +160,11 @@ export interface Bill {
 
 export interface Kitty {
   id: string;
+  createdBy: string;
+  inviteCode: string;
+  status: "forming" | "active";
+  sharePerMember: number;
+  expectedMembers: number;
   name: string;
   destination: string;
   tagline: string;
@@ -172,4 +185,25 @@ export interface ModeStatus {
   ai: "gemini" | "rules";
   aiModel?: string;
   paypalClientId?: string;
+}
+
+export interface AppUser {
+  id: string;
+  email: string;
+  name: string;
+  paypalEmail?: string;
+  currency: Currency;
+  hue: number;
+}
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  kittyId?: string;
+  kind: string;
+  title: string;
+  body?: string;
+  href?: string;
+  read: boolean;
+  createdAt: string;
 }

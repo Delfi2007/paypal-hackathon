@@ -7,7 +7,8 @@ import { fmt } from "./money";
 import { poolBalance } from "./policy";
 
 export const AI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-export const aiConfigured = () => !!process.env.GEMINI_API_KEY;
+const geminiKey = () => process.env.KITTY_GEMINI_KEY || process.env.GEMINI_API_KEY;
+export const aiConfigured = () => !!geminiKey();
 
 async function gemini(
   system: string,
@@ -22,7 +23,7 @@ async function gemini(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-goog-api-key": process.env.GEMINI_API_KEY!,
+        "x-goog-api-key": geminiKey()!,
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
@@ -223,23 +224,26 @@ Return JSON: {"merchant": string, "currency": string, "items":[{"name":string,"p
     )) as ParsedBill;
     return out;
   }
-  // Demo receipt when no key / no image is provided.
-  const all = k.members.map((m) => m.id);
+  // No key or no photo: a sample receipt split across the real members of this kitty.
+  const ids = k.members.map((m) => m.id);
+  const pair = ids.slice(0, 2);
+  const noFirst = ids.slice(1);
+  const trio = ids.slice(0, 3);
   return {
-    merchant: "Ammoudi Fish Tavern (sample receipt)",
+    merchant: "Seaside Taverna (sample receipt)",
     currency: k.baseCurrency,
     items: [
-      { name: "Grilled octopus", price: 24, assignedTo: ["m_ana", "m_kenji"] },
-      { name: "Santorini fava", price: 9, assignedTo: all },
-      { name: "Catch of the day (1kg)", price: 68, assignedTo: all },
-      { name: "Tomatokeftedes", price: 11, assignedTo: all },
-      { name: "Assyrtiko, bottle ×2", price: 56, assignedTo: all.filter((x) => x !== "m_delfi") },
-      { name: "Baklava ×3", price: 18, assignedTo: ["m_mukesh", "m_nambert", "m_delfi"] },
+      { name: "Grilled octopus", price: 24, assignedTo: pair },
+      { name: "Fava & capers", price: 9, assignedTo: ids },
+      { name: "Catch of the day (1kg)", price: 68, assignedTo: ids },
+      { name: "Tomato fritters", price: 11, assignedTo: ids },
+      { name: "White wine, bottle ×2", price: 56, assignedTo: noFirst.length ? noFirst : ids },
+      { name: "Baklava ×3", price: 18, assignedTo: trio },
     ],
     tax: 0,
     tip: 15,
     total: 201,
-    note: aiConfigured() ? "No photo attached — showing a sample receipt." : "Offline mode: showing a sample receipt.",
+    note: aiConfigured() ? "No photo attached, so this is a sample receipt." : "Offline mode: showing a sample receipt.",
   };
 }
 

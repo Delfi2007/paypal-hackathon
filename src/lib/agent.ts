@@ -6,7 +6,8 @@ import { evaluate, poolBalance, round2 } from "./policy";
 import { draftReminders, planCommand } from "./ai";
 import * as paypal from "./paypal";
 import { convert, fmt } from "./money";
-import { log, uid } from "./store";
+import { log, notify, uid } from "./store";
+import { personaOf } from "./persona";
 
 function title(k: Kitty, a: AgentAction): string {
   const p = a.params;
@@ -68,6 +69,7 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
       name: String(action.params.name ?? "New vendor"),
       email: String(action.params.email || `${String(action.params.name ?? "vendor").toLowerCase().replace(/[^a-z]/g, "")}@business.example.com`),
       category: (action.params.category as Kitty["vendors"][0]["category"]) ?? "other",
+      addedBy: actor.id,
     };
     k.vendors.push(v);
     log(k, { actor: "agent", kind: "info", title: `Added ${v.name} as a payee (not pre-approved)`, reasoning: action.reasoning, policy });
@@ -81,7 +83,11 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
 
   if (policy.decision === "allow") {
     log(k, { actor: "policy", kind: "policy", title: `Approved by policy — ${title(k, action)}`, policy, reasoning: action.reasoning });
-    await execute(k, action);
+    try {
+      await execute(k, action);
+    } catch (e) {
+      return { decision: "failed", error: (e as Error).message };
+    }
     return { decision: "allow" };
   }
 
@@ -107,6 +113,8 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
   const quorumIssues = policy.checks.some((c) => !c.pass && c.severity === "quorum");
   if (fundsOnly && !quorumIssues) proposal.preApproved = true;
   k.proposals.unshift(proposal);
+  if (!fundsOnly || quorumIssues)
+    notify(k.members.filter((m) => m.id !== actor.id).map((m) => m.id), { kittyId: k.id, kind: "vote", title: `Your vote: ${proposal.title}`, body: `${actor.name} asked the group — needs ${k.mandate.quorum} approvals.`, href: `/k/${k.id}/approvals` });
   log(k, {
     actor: "policy",
     kind: "policy",
@@ -143,6 +151,7 @@ export async function execute(k: Kitty, action: AgentAction) {
           amount,
           ref: r.batchId,
         });
+        notify(k.members.map((m) => m.id), { kittyId: k.id, kind: "payout", title: `Paid ${v.name} ${fmt(amount, k.baseCurrency)}`, body: "Sent from the pool with PayPal Payouts.", href: `/k/${k.id}/activity` });
         break;
       }
       case "request_contributions": {
@@ -154,7 +163,7 @@ export async function execute(k: Kitty, action: AgentAction) {
         for (const m of owing) {
           const local = await convert(m.share - m.paid, k.baseCurrency, m.currency);
           const inv = await paypal.createAndSendInvoice({
-            email: m.email,
+            email: m.paypalEmail || m.email,
             name: m.name,
             amount: local,
             currency: m.currency,
@@ -170,6 +179,7 @@ export async function execute(k: Kitty, action: AgentAction) {
             detail: `≈ ${fmt(m.share - m.paid, k.baseCurrency)} · PayPal invoice ${inv.id} · ${inv.status}${inv.simulated ? " (simulated)" : ""}`,
             ref: inv.id,
           });
+          notify([m.id], { kittyId: k.id, kind: "invoice", title: `Your share: ${fmt(local, m.currency)}`, body: `PayPal invoice for ${k.name}, due ${k.mandate.deadline}.`, href: `/pay/${k.id}` });
         }
         break;
       }
@@ -184,6 +194,9 @@ export async function execute(k: Kitty, action: AgentAction) {
         for (const m of targets) {
           const text = msgs.find((x) => x.memberId === m.id)?.text ?? `Reminder: your share for ${k.name}`;
           m.remindersSent += 1;
+          m.lastRemindedAt = new Date().toISOString();
+          m.persona = personaOf(m, k.mandate.deadline);
+          notify([m.id], { kittyId: k.id, kind: "reminder", title: `Reminder from ${k.name}`, body: text, href: `/pay/${k.id}` });
           if (m.invoiceId) await paypal.remindInvoice(m.invoiceId, `Reminder: ${k.name}`, text).catch(() => {});
         }
         log(k, {
@@ -273,6 +286,9 @@ export async function recordContribution(
   const base = await convert(local.amount, local.currency, k.baseCurrency);
   member.paid = round2(member.paid + base);
   member.paidLocal = local;
+  if (member.paid >= member.share) member.paidAt = new Date().toISOString();
+  member.persona = personaOf(member, k.mandate.deadline);
+  notify(k.members.filter((m) => m.id !== member.id).map((m) => m.id), { kittyId: k.id, kind: "payment", title: `${member.name} paid ${fmt(base, k.baseCurrency)}`, href: `/k/${k.id}` });
   log(k, {
     actor: "paypal",
     kind: "payment",

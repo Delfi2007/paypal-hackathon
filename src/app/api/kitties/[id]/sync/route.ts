@@ -1,13 +1,13 @@
-import { fail, ok } from "@/lib/api";
+import { fail, needKitty, ok } from "@/lib/api";
 import { mutate } from "@/lib/store";
 import { invoiceStatus } from "@/lib/paypal";
 import { recordContribution } from "@/lib/agent";
 
-// Poll PayPal for invoice payments (fallback for when webhooks can't reach
-// localhost). Webhooks do the same thing in production.
+// Poll PayPal for paid invoices: a backup for webhooks, which cannot reach localhost.
 export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    await needKitty(id);
     const updates = await mutate(id, async (k) => {
       let n = 0;
       for (const m of k.members) {

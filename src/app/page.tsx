@@ -25,8 +25,8 @@ export default function Home() {
               Kitty is an AI treasurer. It collects everyone&apos;s share through PayPal, pays the vendors and chases the friend who forgot. It only spends inside rules your group signs.
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3 rise" style={{ animationDelay: ".15s" }}>
-              <Link href="/k/santorini" className="btn btn-dark !py-3.5">Open the live demo <Sparkles size={15} /></Link>
-              <Link href="/k/santorini/agent" className="btn bg-white/20 backdrop-blur border border-white/40 text-white !py-3.5">Talk to the agent <Play size={14} /></Link>
+              <Link href="/signup" className="btn btn-dark !py-3.5">Get started free <Sparkles size={15} /></Link>
+              <Link href="/login" className="btn bg-white/20 backdrop-blur border border-white/40 text-white !py-3.5">Log in <Play size={14} /></Link>
             </div>
 
             {/* floating product cards */}
@@ -70,19 +70,19 @@ export default function Home() {
         <h2 className="display text-4xl sm:text-6xl font-medium text-center">Money should move as fast<br />as <span className="text-sky">your group does.</span></h2>
         <p className="text-center text-ink-2 mt-4">Agents propose. Policy decides. Friends vote. PayPal moves the money.</p>
         <div className="mt-14 grid gap-6 md:grid-cols-3">
-          <Pillar title="Speak it." text="Tell Kitty what you need in plain words. It plans the actions and explains each one." link="/k/santorini/agent" cta="Talk to the agent" bg="bg-[#eef4ff]">
+          <Pillar title="Speak it." text="Tell Kitty what you need in plain words. It plans the actions and explains each one." link="/signup" cta="Create an account" bg="bg-[#eef4ff]">
             <div className="panel p-4 w-[85%] -rotate-2">
               <p className="text-xs rounded-2xl bg-ink text-white px-3 py-2 w-fit ml-auto">Pay the hotel deposit & nudge Kenji</p>
               <p className="text-xs rounded-2xl bg-soft px-3 py-2 w-fit mt-2">Lining up €1,800 to Caldera Cliff Suites, and sending Kenji a friendly nudge.</p>
             </div>
           </Pillar>
-          <Pillar title="Sign it." text="A mandate with a budget, a cap, payees and a quorum. A deterministic policy engine enforces it, and the AI can't get around it." link="/k/santorini/approvals" cta="See the rules" bg="bg-[#eefaf3]">
+          <Pillar title="Sign it." text="A mandate with a budget, a cap, payees and a quorum. A deterministic policy engine enforces it, and the AI can't get around it." link="/signup" cta="Start a kitty" bg="bg-[#eefaf3]">
             <div className="panel p-4 w-[85%] rotate-2">
               <div className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={16} className="text-ok" /> Policy check</div>
               <ul className="mt-2 space-y-1 text-xs"><li>✓ Within total budget</li><li>✓ Pre-approved payee</li><li className="text-[#6a4bd8] font-semibold">✕ Over per-payment cap → vote</li></ul>
             </div>
           </Pillar>
-          <Pillar title="Settle it." text="Friends pay in their own currency with PayPal. Approved payouts go out the moment the pool can cover them." link="/pay/santorini/m_kenji" cta="Open a pay link" bg="bg-[#f5f0ff]">
+          <Pillar title="Settle it." text="Friends pay in their own currency with PayPal. Approved payouts go out the moment the pool can cover them." link="/signup" cta="Join with a friend link" bg="bg-[#f5f0ff]">
             <div className="panel p-4 w-[85%] -rotate-1">
               <p className="text-xs text-mute">Kenji pays in JPY</p>
               <p className="num text-2xl font-semibold">¥147,000</p>
@@ -127,7 +127,7 @@ export default function Home() {
               <h2 className="display text-6xl sm:text-8xl xl:text-[8.5rem] font-light leading-[0.88]">Real-time<br />settlement</h2>
               <div className="max-w-xs">
                 <p className="text-lg leading-snug">Every friend pays in their own currency. The pool settles in one, live, and the moment it&apos;s funded the queued payouts go out.</p>
-                <Link href="/k/santorini" className="btn btn-black mt-6 !pl-6 !pr-2 !py-2">JUMP IN <span className="grid place-items-center size-9 rounded-full bg-white text-ink"><ArrowRight size={16} /></span></Link>
+                <Link href="/signup" className="btn btn-black mt-6 !pl-6 !pr-2 !py-2">JUMP IN <span className="grid place-items-center size-9 rounded-full bg-white text-ink"><ArrowRight size={16} /></span></Link>
               </div>
             </div>
           </div>

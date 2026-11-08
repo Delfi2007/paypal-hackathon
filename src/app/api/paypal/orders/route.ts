@@ -2,24 +2,22 @@ import { fail, needKitty, ok } from "@/lib/api";
 import { createOrder } from "@/lib/paypal";
 import { convert } from "@/lib/money";
 
-// Create a PayPal order for a member's outstanding share, in their own currency.
+// Create a PayPal order for the signed-in member's outstanding share, in their own currency.
 export async function POST(req: Request) {
   try {
-    const { kittyId, memberId } = (await req.json()) as { kittyId: string; memberId: string };
-    const k = needKitty(kittyId);
-    const m = k.members.find((x) => x.id === memberId);
-    if (!m) throw new Error("Unknown member");
-    const owedBase = Math.max(0, m.share - m.paid);
+    const { kittyId } = (await req.json()) as { kittyId: string };
+    const { k, me } = await needKitty(kittyId);
+    const owedBase = Math.max(0, me.share - me.paid);
     if (owedBase <= 0) throw new Error("Already paid in full");
-    const amount = await convert(owedBase, k.baseCurrency, m.currency);
+    const amount = await convert(owedBase, k.baseCurrency, me.currency);
     const order = await createOrder({
       amount,
-      currency: m.currency,
+      currency: me.currency,
       kittyId,
-      memberId,
-      description: `${k.name} — ${m.name}'s share`,
+      memberId: me.id,
+      description: `${k.name} — ${me.name}'s share`,
     });
-    return ok({ ...order, amount, currency: m.currency });
+    return ok({ ...order, amount, currency: me.currency });
   } catch (e) {
     return fail(e);
   }

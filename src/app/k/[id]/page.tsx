@@ -11,7 +11,7 @@ import type { Currency } from "@/lib/types";
 const CARD_COLORS = ["#f4f15a", "#3cf0c6", "#38a8ff", "#c9b8ff", "#ff9eb1"];
 
 export default function WalletPage() {
-  const { kitty: k, actor, reload } = useKitty();
+  const { kitty: k, actor, reload, invite } = useKitty();
   const cur = k.baseCurrency;
   const collected = k.members.reduce((s, m) => s + m.paid, 0);
   const pool = collected - k.spent;
@@ -55,7 +55,7 @@ export default function WalletPage() {
     <div className="space-y-8">
       <div className="flex flex-wrap items-center gap-2 rise">
         <FeatureTag n="07" label="Multi-currency, one settlement" />
-        <FeatureTag n="11" label="Member pay links" />
+        <FeatureTag n="11" label="Member checkout" />
       </div>
 
       {/* ---------------- dark wallet hero (video 2) */}
@@ -147,10 +147,12 @@ export default function WalletPage() {
         <section className="rise" style={{ animationDelay: ".14s" }}>
           <SectionHead eyebrow="Travellers" title="Who's in" right={<Link href={`/k/${k.id}/agent`} className="btn btn-ghost !py-2 text-sm"><Bell size={14} /> Remind</Link>} />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {k.members.map((m) => <MemberTile key={m.id} kittyId={k.id} m={m} cur={cur} />)}
-            <Link href="/new" className="rounded-[1.4rem] border-2 border-dashed border-line grid place-items-center text-mute hover:text-ink hover:border-ink/30 min-h-[170px]">
-              <span className="flex flex-col items-center gap-1 text-sm"><Plus /> New kitty</span>
-            </Link>
+            {k.members.map((m) => <MemberTile key={m.id} kittyId={k.id} m={m} cur={cur} me={m.id === actor.id} />)}
+            {k.members.length < k.expectedMembers && (
+              <button onClick={invite} className="rounded-[1.4rem] border-2 border-dashed border-line grid place-items-center text-mute hover:text-ink hover:border-ink/30 min-h-[170px]">
+                <span className="flex flex-col items-center gap-1 text-sm"><Plus /> Invite a friend<span className="text-xs">{k.members.length}/{k.expectedMembers} joined</span></span>
+              </button>
+            )}
           </div>
         </section>
       </div>
@@ -158,30 +160,25 @@ export default function WalletPage() {
   );
 }
 
-function MemberTile({ kittyId, m, cur }: { kittyId: string; m: ReturnType<typeof useKitty>["kitty"]["members"][0]; cur: Currency }) {
-  const [copied, setCopied] = useState(false);
+function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<typeof useKitty>["kitty"]["members"][0]; cur: Currency; me: boolean }) {
   const done = m.paid >= m.share;
-  const url = `/pay/${kittyId}/${m.id}`;
   return (
-    <div className="panel !rounded-[1.4rem] p-4 flex flex-col items-center text-center hover:-translate-y-1 transition-transform">
+    <div className={`panel !rounded-[1.4rem] p-4 flex flex-col items-center text-center hover:-translate-y-1 transition-transform ${me ? "ring-2 ring-blue/40" : ""}`}>
       <div className="relative">
         <Avatar m={m} size={54} />
         <span className={`absolute -right-0.5 -bottom-0.5 grid place-items-center size-5 rounded-full border-2 border-white ${done ? "bg-ok" : "bg-warn"}`}>
           {done ? <Check size={11} className="text-white" /> : <span className="size-1.5 rounded-full bg-white" />}
         </span>
       </div>
-      <p className="font-semibold mt-2">{m.name}</p>
-      <p className="text-[11px] text-mute">pays in {m.currency} · {m.persona}</p>
+      <p className="font-semibold mt-2">{m.name}{me && <span className="text-mute font-normal"> (you)</span>}</p>
+      <p className="text-[11px] text-mute">pays in {m.currency}{m.role === "organizer" ? " · organiser" : ""}</p>
       <p className="num text-lg font-semibold mt-2">{fmt(m.paid, cur)}<span className="text-mute text-xs font-normal"> / {fmt(m.share, cur)}</span></p>
       {done ? (
         <Chip tone="ok" className="mt-2"><Check size={11} /> Paid</Chip>
+      ) : me ? (
+        <Link href={`/pay/${kittyId}`} className="btn btn-blue !py-1.5 !px-3 text-xs mt-2">Pay my share</Link>
       ) : (
-        <div className="mt-2 flex gap-1.5">
-          <Link href={url} className="btn btn-blue !py-1.5 !px-3 text-xs">Pay link</Link>
-          <button aria-label="Copy pay link" onClick={() => { navigator.clipboard?.writeText(location.origin + url); setCopied(true); setTimeout(() => setCopied(false), 1200); }} className="btn btn-ghost !p-2">
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-          </button>
-        </div>
+        <Chip tone="warn" className="mt-2">{m.remindersSent ? `${m.remindersSent} reminder${m.remindersSent > 1 ? "s" : ""}` : "Hasn't paid yet"}</Chip>
       )}
     </div>
   );

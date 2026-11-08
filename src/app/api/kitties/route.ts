@@ -1,54 +1,65 @@
 import { fail, ok } from "@/lib/api";
-import { listKitties, log, putKitty, uid } from "@/lib/store";
+import { requireUser } from "@/lib/auth";
+import { makeMember } from "@/lib/groups";
+import { inviteCode, listKittiesForUser, log, putKitty, uid } from "@/lib/store";
 import type { KittyDraft } from "@/lib/ai";
 import type { Kitty } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
-  return ok(listKitties().map((k) => ({ id: k.id, name: k.name, destination: k.destination })));
+export async function GET() {
+  try {
+    const u = await requireUser();
+    const ks = await listKittiesForUser(u.id);
+    return ok(
+      ks.map((k) => ({
+        id: k.id,
+        name: k.name,
+        destination: k.destination,
+        tagline: k.tagline,
+        baseCurrency: k.baseCurrency,
+        members: k.members.length,
+        expectedMembers: k.expectedMembers,
+        status: k.status,
+        pool: Math.round((k.members.reduce((s, m) => s + m.paid, 0) - k.spent) * 100) / 100,
+        pending: k.proposals.filter((p) => p.status === "pending").length,
+        needsSign: !k.mandate.signedBy.includes(u.id),
+      })),
+    );
+  } catch (e) {
+    return fail(e);
+  }
 }
 
-// Create a kitty from a reviewed draft.
+// Create a real group from a reviewed draft. The creator is the first member and signs the mandate.
 export async function POST(req: Request) {
   try {
-    const { draft, organizer } = (await req.json()) as { draft: KittyDraft; organizer?: string };
-    const members = draft.members.map((m, i) => ({
-      id: uid("m_"),
-      name: m.name,
-      email: m.email || `${m.name.toLowerCase().replace(/[^a-z]/g, "")}@personal.example.com`,
-      currency: m.currency || draft.baseCurrency,
-      share: Math.round((draft.totalBudget / draft.members.length) * 100) / 100,
-      paid: 0,
-      persona: "new" as const,
-      remindersSent: 0,
-      avatarHue: (i * 67 + 200) % 360,
-      isOrganizer: organizer ? m.name === organizer : i === 0,
-    }));
-    const vendors = draft.vendors.map((v) => ({
-      id: uid("v_"),
-      name: v.name,
-      email: v.email || `${v.name.toLowerCase().replace(/[^a-z]/g, "")}@business.example.com`,
-      category: v.category,
-      approved: v.approved,
-    }));
+    const u = await requireUser();
+    const { draft } = (await req.json()) as { draft: KittyDraft };
+    const expected = Math.max(2, Math.min(30, draft.members?.length || 2));
+    const total = Math.max(1, Number(draft.totalBudget) || 0);
     const k: Kitty = {
       id: uid("k_"),
-      name: draft.name,
-      destination: draft.destination,
-      tagline: draft.tagline,
+      createdBy: u.id,
+      inviteCode: inviteCode(),
+      status: "forming",
+      sharePerMember: Math.round((total / expected) * 100) / 100,
+      expectedMembers: expected,
+      name: String(draft.name || "New kitty").slice(0, 80),
+      destination: String(draft.destination || "").slice(0, 80),
+      tagline: String(draft.tagline || "Good friends, clear money.").slice(0, 120),
       baseCurrency: draft.baseCurrency,
       createdAt: new Date().toISOString(),
-      members,
-      vendors: vendors.map(({ approved: _a, ...v }) => v),
+      members: [],
+      vendors: [],
       mandate: {
-        totalBudget: draft.totalBudget,
-        perPaymentCap: draft.perPaymentCap,
+        totalBudget: total,
+        perPaymentCap: Math.max(1, Number(draft.perPaymentCap) || Math.round(total / 3)),
         allowedCategories: ["stay", "transport", "food", "activities"],
-        approvedPayees: vendors.filter((v) => v.approved).map((v) => v.id),
-        quorum: Math.max(1, Math.min(members.length, draft.quorum)),
-        deadline: new Date(Date.now() + (draft.deadlineDays || 7) * 86400_000).toISOString().slice(0, 10),
-        signedBy: members.map((m) => m.id),
+        approvedPayees: [],
+        quorum: Math.max(1, Math.min(expected, Number(draft.quorum) || Math.floor(expected / 2) + 1)),
+        deadline: new Date(Date.now() + (Number(draft.deadlineDays) || 7) * 86400_000).toISOString().slice(0, 10),
+        signedBy: [u.id],
         version: 1,
       },
       proposals: [],
@@ -57,10 +68,16 @@ export async function POST(req: Request) {
       bills: [],
       spent: 0,
     };
-    log(k, { actor: "agent", kind: "plan", title: `Drafted the ${k.destination} mandate`, detail: `Budget ${draft.totalBudget} ${draft.baseCurrency} · cap ${draft.perPaymentCap} · quorum ${k.mandate.quorum}` });
-    log(k, { actor: "member", actorName: members.map((m) => m.name).join(", "), kind: "mandate", title: `Mandate v1 signed by all ${members.length}` });
-    putKitty(k);
-    return ok({ id: k.id });
+    k.members.push(makeMember(u, k, "organizer"));
+    for (const v of draft.vendors ?? []) {
+      const id = uid("v_");
+      k.vendors.push({ id, name: v.name, email: v.email || "", category: v.category, addedBy: u.id });
+      if (v.approved) k.mandate.approvedPayees.push(id);
+    }
+    log(k, { actor: "agent", kind: "plan", title: `Drafted the ${k.name} mandate`, detail: `Budget ${total} ${k.baseCurrency} · cap ${k.mandate.perPaymentCap} · quorum ${k.mandate.quorum} · ${expected} friends` });
+    log(k, { actor: "member", actorName: u.name, kind: "mandate", title: `${u.name} created the kitty and signed mandate v1`, detail: `Share per friend ${k.sharePerMember} ${k.baseCurrency}. Waiting for ${k.mandate.quorum - 1} more signature(s).` });
+    await putKitty(k);
+    return ok({ id: k.id, inviteCode: k.inviteCode });
   } catch (e) {
     return fail(e);
   }

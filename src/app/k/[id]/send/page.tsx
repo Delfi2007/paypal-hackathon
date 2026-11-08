@@ -94,6 +94,7 @@ export default function SendPage() {
                 </button>
               );
             })}
+            <AddPayee kittyId={k.id} onAdded={async (id) => { await reload(); setVendorId(id); }} />
           </div>
           <div className="mt-6 panel p-5 grid sm:grid-cols-3 gap-4 text-sm">
             <Stat label="Pool balance" value={fmt(poolBalance(k), cur)} />
@@ -144,6 +145,40 @@ export default function SendPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+function AddPayee({ kittyId, onAdded }: { kittyId: string; onAdded: (id: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ name: "", email: "", category: "other" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      await api(`/api/kitties/${kittyId}/action`, { label: `Add payee ${f.name}`, action: { type: "add_vendor", params: f, reasoning: `${f.name} is a new payee (${f.category}).` } });
+      const fresh = await api<{ kitty: { vendors: { id: string; name: string }[] } }>(`/api/kitties/${kittyId}`);
+      const v = fresh.kitty.vendors.find((x) => x.name === f.name);
+      setOpen(false); setF({ name: "", email: "", category: "other" });
+      if (v) await onAdded(v.id);
+    } catch (e2) { setErr((e2 as Error).message); } finally { setBusy(false); }
+  }
+  if (!open)
+    return (
+      <button onClick={() => setOpen(true)} className="rounded-[1.4rem] p-4 border-2 border-dashed border-line text-mute hover:text-ink hover:border-ink/30 grid place-items-center min-h-[120px] text-sm">
+        + Add a payee
+      </button>
+    );
+  return (
+    <form onSubmit={add} className="col-span-2 sm:col-span-3 2xl:col-span-2 rounded-[1.4rem] p-4 border border-line bg-white space-y-2 pop">
+      <input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="Who gets paid? e.g. Hotel Aurora" className="input !py-2" />
+      <input required type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="Their PayPal email" className="input !py-2" />
+      <select value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} className="input !py-2">{["stay", "transport", "food", "activities", "other"].map((c) => <option key={c}>{c}</option>)}</select>
+      {err && <p className="text-bad text-xs">{err}</p>}
+      <div className="flex gap-2"><button disabled={busy} className="btn btn-dark !py-2 text-sm flex-1">Add payee</button><button type="button" onClick={() => setOpen(false)} className="btn btn-ghost !py-2 text-sm">Cancel</button></div>
+      <p className="text-[11px] text-mute">New payees are not pre-approved, so the first payment to them needs a group vote.</p>
+    </form>
   );
 }
 

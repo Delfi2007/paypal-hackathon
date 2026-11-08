@@ -86,7 +86,7 @@ export default function ApprovalsPage() {
                         <button onClick={() => cast(p, false)} disabled={!!busy} className={`btn btn-ghost ${voted === "no" ? "!bg-bad-soft !text-bad" : ""}`}><X size={15} /></button>
                         <button onClick={() => cast(p, true)} disabled={!!busy || voted === "yes"} className="btn btn-blue">
                           {busy === p.id + "true" ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-                          {voted === "yes" ? `Approved · ${need} more needed` : `Approve as ${actor.name}`}
+                          {voted === "yes" ? `Approved · ${need} more needed` : "Approve"}
                         </button>
                       </div>
                     )}
@@ -139,13 +139,42 @@ export default function ApprovalsPage() {
                 <span key={v.id} className={`text-xs rounded-full px-2.5 py-1 ${k.mandate.approvedPayees.includes(v.id) ? "bg-mint/20 text-mint" : "bg-white/10 text-white/45 line-through"}`}>{v.name}</span>
               ))}
             </div>
-            <div className="mt-6 flex items-center gap-2">
-              <div className="flex -space-x-2">{k.members.filter((m) => k.mandate.signedBy.includes(m.id)).map((m) => <Avatar key={m.id} m={m} size={28} />)}</div>
-              <span className="text-xs text-white/60">signed by {k.mandate.signedBy.length}</span>
-            </div>
+            <SignBox />
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function SignBox() {
+  const { kitty: k, actor, reload } = useKitty();
+  const [busy, setBusy] = useState(false);
+  const signed = k.mandate.signedBy.includes(actor.id);
+  async function sign() {
+    setBusy(true);
+    try { await api(`/api/kitties/${k.id}/sign`, {}); await reload(); } finally { setBusy(false); }
+  }
+  return (
+    <div className="mt-6">
+      <p className="label !text-white/60">Signatures · {k.mandate.signedBy.length} of {k.mandate.quorum} needed{k.status === "active" ? " · in force" : ""}</p>
+      <ul className="mt-3 space-y-2">
+        {k.members.map((m) => {
+          const s = k.mandate.signedBy.includes(m.id);
+          return (
+            <li key={m.id} className="flex items-center gap-2 text-sm">
+              <Avatar m={m} size={26} />
+              <span className="flex-1">{m.name}{m.id === actor.id ? " (you)" : ""}</span>
+              {s ? <span className="text-mint flex items-center gap-1 text-xs font-semibold"><Check size={13} /> signed</span> : <span className="text-white/40 text-xs">not yet</span>}
+            </li>
+          );
+        })}
+      </ul>
+      {!signed && (
+        <button onClick={sign} disabled={busy} className="btn w-full mt-4 bg-white text-ink hover:bg-white/90">
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} I agree, sign the mandate
+        </button>
+      )}
     </div>
   );
 }

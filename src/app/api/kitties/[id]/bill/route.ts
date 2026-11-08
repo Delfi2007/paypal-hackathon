@@ -1,4 +1,4 @@
-import { fail, ok } from "@/lib/api";
+import { fail, needKitty, ok } from "@/lib/api";
 import { log, mutate, uid } from "@/lib/store";
 import { parseBill } from "@/lib/ai";
 import { convert, fmt } from "@/lib/money";
@@ -10,6 +10,7 @@ const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "SGD"];
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    await needKitty(id);
     const form = await req.formData();
     const file = form.get("image") as File | null;
     const hint = String(form.get("hint") ?? "");

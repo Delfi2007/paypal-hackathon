@@ -1,152 +1,208 @@
-// Tiny JSON-file store. Good enough for a hackathon demo and zero setup:
-// state lives in memory and is flushed to .data/kitties.json on every write.
+// Persistence layer over libSQL. A kitty is one JSON document (its ledger, votes,
+// proposals…) plus indexed tables for users, memberships and notifications.
 
-import fs from "node:fs";
-import path from "node:path";
-import type { Kitty, LedgerEvent } from "./types";
+import crypto from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { db } from "./db";
+import type { AppNotification, AppUser, Currency, Kitty, LedgerEvent } from "./types";
 
-const DIR = path.join(process.cwd(), ".data");
-const FILE = path.join(DIR, "kitties.json");
+export const uid = (p = "") => `${p}${Date.now().toString(36)}${crypto.randomBytes(4).toString("hex")}`;
+export const inviteCode = () => crypto.randomBytes(5).toString("base64url").replace(/[-_]/g, "x").toLowerCase();
 
-type DB = { kitties: Record<string, Kitty> };
-const g = globalThis as unknown as { __kittyDb?: DB };
+// ------------------------------------------------------------------ users
 
-export const uid = (p = "") =>
-  `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+export interface UserRow extends AppUser { passHash: string }
 
-function load(): DB {
-  if (g.__kittyDb) return g.__kittyDb;
-  let db: DB = { kitties: {} };
-  try {
-    if (fs.existsSync(FILE)) db = JSON.parse(fs.readFileSync(FILE, "utf8"));
-  } catch {}
-  if (!db.kitties[DEMO_ID]) db.kitties[DEMO_ID] = seedDemo();
-  g.__kittyDb = db;
-  return db;
+const toUser = (r: Record<string, unknown>): UserRow => ({
+  id: String(r.id),
+  email: String(r.email),
+  name: String(r.name),
+  passHash: String(r.pass_hash),
+  paypalEmail: r.paypal_email ? String(r.paypal_email) : undefined,
+  currency: String(r.currency) as Currency,
+  hue: Number(r.hue),
+});
+
+export const publicUser = ({ passHash: _p, ...u }: UserRow): AppUser => u;
+
+export async function createUser(u: { email: string; name: string; passHash: string; currency: Currency; paypalEmail?: string }): Promise<UserRow> {
+  const c = await db();
+  const id = uid("u_");
+  const hue = Math.floor(Math.random() * 360);
+  await c.execute({
+    sql: "INSERT INTO users (id,email,name,pass_hash,paypal_email,currency,hue,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    args: [id, u.email.toLowerCase(), u.name, u.passHash, u.paypalEmail ?? null, u.currency, hue, new Date().toISOString()],
+  });
+  return (await getUserById(id))!;
 }
 
-function save() {
-  try {
-    fs.mkdirSync(DIR, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(g.__kittyDb, null, 2));
-  } catch (e) {
-    console.error("store save failed", e);
-  }
+export async function getUserByEmail(email: string): Promise<UserRow | undefined> {
+  const r = await (await db()).execute({ sql: "SELECT * FROM users WHERE email = ?", args: [email.toLowerCase()] });
+  return r.rows[0] ? toUser(r.rows[0] as never) : undefined;
 }
 
-export function listKitties(): Kitty[] {
-  return Object.values(load().kitties).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+export async function getUserById(id: string): Promise<UserRow | undefined> {
+  const r = await (await db()).execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+  return r.rows[0] ? toUser(r.rows[0] as never) : undefined;
 }
 
-export function getKitty(id: string): Kitty | undefined {
-  return load().kitties[id];
+export async function updateUser(id: string, patch: { name?: string; currency?: Currency; paypalEmail?: string | null }) {
+  const c = await db();
+  const u = await getUserById(id);
+  if (!u) return;
+  await c.execute({
+    sql: "UPDATE users SET name=?, currency=?, paypal_email=? WHERE id=?",
+    args: [patch.name ?? u.name, patch.currency ?? u.currency, patch.paypalEmail === undefined ? u.paypalEmail ?? null : patch.paypalEmail, id],
+  });
 }
 
-export function putKitty(k: Kitty) {
-  load().kitties[k.id] = k;
-  save();
+// ---------------------------------------------------------------- kitties
+
+const locks = new Map<string, Promise<unknown>>();
+type Queue = { notes: Omit<AppNotification, "id" | "createdAt" | "read">[] };
+const als = new AsyncLocalStorage<Queue>();
+
+export async function getKitty(id: string): Promise<Kitty | undefined> {
+  const r = await (await db()).execute({ sql: "SELECT data FROM kitties WHERE id = ?", args: [id] });
+  return r.rows[0] ? (JSON.parse(String(r.rows[0].data)) as Kitty) : undefined;
+}
+
+export async function getKittyByInvite(code: string): Promise<Kitty | undefined> {
+  const r = await (await db()).execute({ sql: "SELECT data FROM kitties WHERE invite_code = ?", args: [code] });
+  return r.rows[0] ? (JSON.parse(String(r.rows[0].data)) as Kitty) : undefined;
+}
+
+/** Find the kitty whose JSON contains a PayPal id (invoice id, payout batch id). Used by webhooks. */
+export async function findKittyContaining(paypalId: string): Promise<Kitty | undefined> {
+  if (!/^[A-Za-z0-9_-]{6,64}$/.test(paypalId)) return undefined;
+  const r = await (await db()).execute({ sql: "SELECT data FROM kitties WHERE data LIKE ? LIMIT 1", args: [`%"${paypalId}"%`] });
+  return r.rows[0] ? (JSON.parse(String(r.rows[0].data)) as Kitty) : undefined;
+}
+
+export async function listKittiesForUser(userId: string): Promise<Kitty[]> {
+  const r = await (await db()).execute({
+    sql: "SELECT k.data FROM kitties k JOIN memberships m ON m.kitty_id = k.id WHERE m.user_id = ? ORDER BY k.updated_at DESC",
+    args: [userId],
+  });
+  return r.rows.map((x) => JSON.parse(String(x.data)) as Kitty);
+}
+
+async function persist(k: Kitty) {
+  const c = await db();
+  await c.batch(
+    [
+      {
+        sql: "INSERT INTO kitties (id, invite_code, data, updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+        args: [k.id, k.inviteCode, JSON.stringify(k), new Date().toISOString()],
+      },
+      ...k.members.map((m) => ({
+        sql: "INSERT OR IGNORE INTO memberships (kitty_id, user_id) VALUES (?,?)",
+        args: [k.id, m.id],
+      })),
+    ],
+    "write",
+  );
+}
+
+export async function putKitty(k: Kitty) {
+  await persist(k);
   return k;
 }
 
-/** Run a mutation against a kitty and persist it. */
+/** Read-modify-write one kitty under a per-kitty lock; flush queued notifications after the save. */
 export async function mutate<T>(id: string, fn: (k: Kitty) => Promise<T> | T): Promise<T> {
-  const k = getKitty(id);
-  if (!k) throw new Error("Kitty not found");
-  const out = await fn(k);
-  save();
-  return out;
+  const prev = locks.get(id) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const mine = prev.then(() => gate);
+  locks.set(id, mine);
+  await prev.catch(() => undefined);
+  try {
+    const k = await getKitty(id);
+    if (!k) throw new HttpError(404, "Kitty not found");
+    const q: Queue = { notes: [] };
+    const out = await als.run(q, () => fn(k));
+    await persist(k);
+    await flush(q);
+    return out;
+  } finally {
+    release();
+    if (locks.get(id) === mine) locks.delete(id);
+  }
 }
 
-export function log(k: Kitty, e: Omit<LedgerEvent, "id" | "ts">): LedgerEvent {
-  const ev: LedgerEvent = { id: uid("ev_"), ts: new Date().toISOString(), ...e };
+// ------------------------------------------------------------ notifications
+
+/** Queue an in-app notification for each user; delivered after the surrounding mutate() saves. */
+export function notify(userIds: string[], n: { kittyId?: string; kind: string; title: string; body?: string; href?: string }) {
+  const q = als.getStore();
+  const rows = userIds.map((userId) => ({ userId, ...n }));
+  if (q) q.notes.push(...rows);
+  else void flush({ notes: rows });
+}
+
+async function flush(q: Queue) {
+  if (!q.notes.length) return;
+  const c = await db();
+  await c.batch(
+    q.notes.map((n) => ({
+      sql: "INSERT INTO notifications (id,user_id,kitty_id,kind,title,body,href,read,created_at) VALUES (?,?,?,?,?,?,?,0,?)",
+      args: [uid("n_"), n.userId, n.kittyId ?? null, n.kind, n.title, n.body ?? null, n.href ?? null, new Date().toISOString()],
+    })),
+    "write",
+  );
+  try {
+    const { pushTo } = await import("./push");
+    for (const n of q.notes) await pushTo(n.userId, { title: n.title, body: n.body, href: n.href });
+  } catch {}
+}
+
+export async function listNotifications(userId: string, limit = 30): Promise<AppNotification[]> {
+  const r = await (await db()).execute({
+    sql: "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+    args: [userId, limit],
+  });
+  return r.rows.map((x) => ({
+    id: String(x.id), userId: String(x.user_id), kittyId: x.kitty_id ? String(x.kitty_id) : undefined,
+    kind: String(x.kind), title: String(x.title), body: x.body ? String(x.body) : undefined,
+    href: x.href ? String(x.href) : undefined, read: Number(x.read) === 1, createdAt: String(x.created_at),
+  }));
+}
+
+export async function markNotificationsRead(userId: string) {
+  await (await db()).execute({ sql: "UPDATE notifications SET read = 1 WHERE user_id = ?", args: [userId] });
+}
+
+// ------------------------------------------------------------------ ledger
+
+/** Appends to the ledger as a hash chain: tampering with any past event breaks every later hash. */
+export function log(k: Kitty, e: Omit<LedgerEvent, "id" | "ts" | "hash" | "prev">): LedgerEvent {
+  const prev = k.ledger[0]?.hash ?? "genesis";
+  const base = { id: uid("ev_"), ts: new Date().toISOString(), ...e };
+  const hash = crypto.createHash("sha256").update(prev + JSON.stringify(base)).digest("hex");
+  const ev: LedgerEvent = { ...base, prev, hash };
   k.ledger.unshift(ev);
   return ev;
 }
 
-export function resetDemo() {
-  const db = load();
-  db.kitties[DEMO_ID] = seedDemo();
-  save();
-  return db.kitties[DEMO_ID];
+export function verifyChain(k: Kitty): { ok: boolean; checked: number; brokenAt?: string } {
+  const evs = [...k.ledger].reverse(); // oldest first
+  let prev = "genesis";
+  let checked = 0;
+  for (const ev of evs) {
+    if (!ev.hash) { prev = "genesis"; continue; } // pre-chain legacy events
+    const { hash, prev: p, ...base } = ev;
+    const want = crypto.createHash("sha256").update((p ?? prev) + JSON.stringify(base)).digest("hex");
+    if (p !== prev && checked > 0) return { ok: false, checked, brokenAt: ev.id };
+    if (want !== hash) return { ok: false, checked, brokenAt: ev.id };
+    prev = hash;
+    checked++;
+  }
+  return { ok: true, checked };
 }
 
-// ---------------------------------------------------------------- demo seed
+// --------------------------------------------------------------------- misc
 
-export const DEMO_ID = "santorini";
-
-function ago(mins: number) {
-  return new Date(Date.now() - mins * 60_000).toISOString();
-}
-
-function seedDemo(): Kitty {
-  const deadline = new Date(Date.now() + 6 * 86400_000).toISOString().slice(0, 10);
-  const k: Kitty = {
-    id: DEMO_ID,
-    name: "Santorini, Slowly",
-    destination: "Santorini, Greece",
-    tagline: "Five friends. One caldera. Zero awkward money chats.",
-    baseCurrency: "EUR",
-    createdAt: ago(60 * 24 * 3),
-    spent: 0,
-    members: [
-      { id: "m_delfi", name: "Delfi", email: "delfi@personal.example.com", currency: "EUR", share: 900, paid: 900, persona: "prompt", remindersSent: 0, avatarHue: 212, isOrganizer: true },
-      { id: "m_mukesh", name: "Mukesh", email: "mukesh@personal.example.com", currency: "GBP", share: 900, paid: 0, persona: "forgetful", remindersSent: 1, avatarHue: 330 },
-      { id: "m_nambert", name: "Nambert", email: "nambert@personal.example.com", currency: "USD", share: 900, paid: 900, paidLocal: { amount: 978.26, currency: "USD" }, persona: "prompt", remindersSent: 0, avatarHue: 28 },
-      { id: "m_ana", name: "Ana", email: "ana@personal.example.com", currency: "EUR", share: 900, paid: 900, persona: "prompt", remindersSent: 0, avatarHue: 160 },
-      { id: "m_kenji", name: "Kenji", email: "kenji@personal.example.com", currency: "JPY", share: 900, paid: 0, persona: "late", remindersSent: 2, avatarHue: 265 },
-    ],
-    vendors: [
-      { id: "v_caldera", name: "Caldera Cliff Suites", email: "stay@business.example.com", category: "stay" },
-      { id: "v_sail", name: "Aegean Sail Co.", email: "sail@business.example.com", category: "activities" },
-      { id: "v_taxi", name: "Oia Taxi Collective", email: "taxi@business.example.com", category: "transport" },
-      { id: "v_tavern", name: "Ammoudi Fish Tavern", email: "tavern@business.example.com", category: "food" },
-    ],
-    mandate: {
-      totalBudget: 4500,
-      perPaymentCap: 1500,
-      allowedCategories: ["stay", "transport", "food", "activities"],
-      approvedPayees: ["v_caldera", "v_sail", "v_taxi"],
-      quorum: 3,
-      deadline,
-      signedBy: ["m_delfi", "m_nambert", "m_ana", "m_mukesh"],
-      version: 1,
-    },
-    proposals: [],
-    payouts: [],
-    bills: [],
-    ledger: [],
-  };
-
-  const ev = (mins: number, e: Omit<LedgerEvent, "id" | "ts">): LedgerEvent => ({
-    id: uid("ev_"),
-    ts: ago(mins),
-    ...e,
-  });
-
-  k.ledger = [
-    ev(60 * 5, {
-      actor: "agent",
-      kind: "reminder",
-      title: "Nudged Kenji — second reminder",
-      reasoning: "Kenji has paid late on past trips; a warm but specific nudge with the date works better than a generic ping.",
-      messages: [{ to: "Kenji", text: "Kenji! Sunsets in Oia wait for no one 🌅 Your €900 share (≈ ¥ in your currency) is due Friday — one tap and you're in." }],
-    }),
-    ev(60 * 26, { actor: "paypal", kind: "payment", title: "Ana paid €900.00", amount: 900, ref: "SIM-CAP-ANA" }),
-    ev(60 * 30, { actor: "paypal", kind: "payment", title: "Nambert paid $978.26 → €900.00", detail: "Paid in USD, settled to the pool in EUR", amount: 900, ref: "SIM-CAP-NAM" }),
-    ev(60 * 40, { actor: "paypal", kind: "payment", title: "Delfi paid €900.00", amount: 900, ref: "SIM-CAP-DEL" }),
-    ev(60 * 48, {
-      actor: "agent",
-      kind: "invoice",
-      title: "Requested €900 from each of 5 travellers",
-      reasoning: "Budget €4,500 split evenly across 5 people. Each person is billed in their own currency.",
-    }),
-    ev(60 * 49, { actor: "member", actorName: "Delfi, Nambert, Ana, Mukesh", kind: "mandate", title: "Mandate v1 signed by 4 of 5", detail: "Budget €4,500 · per-payment cap €1,500 · quorum 3 · 3 pre-approved payees" }),
-    ev(60 * 50, {
-      actor: "agent",
-      kind: "plan",
-      title: "Drafted the Santorini mandate",
-      reasoning: "From: “5 of us, Santorini, around €900 each, hotel + sailing + taxis, nothing over €1.5k without asking.”",
-    }),
-  ];
-  return k;
+export class HttpError extends Error {
+  constructor(public status: number, message: string) { super(message); }
 }

@@ -68,6 +68,12 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
           severity: "block",
         },
         {
+          rule: "Payee has a PayPal email",
+          pass: !!vendor && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(vendor.email || ""),
+          detail: vendor?.email ? "Payouts go to " + vendor.email : "Add their PayPal email first",
+          severity: "block",
+        },
+        {
           rule: "Pool has funds",
           pass: amount <= balance,
           detail: `Pool balance ${fmt(balance, cur)}`,
@@ -97,6 +103,12 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
           rule: "Allowed category",
           pass: !!vendor && m.allowedCategories.includes(vendor.category),
           detail: vendor ? `Category: ${vendor.category}` : "Unknown category",
+          severity: "quorum",
+        },
+        {
+          rule: "Mandate signed",
+          pass: m.signedBy.length >= m.quorum,
+          detail: `${m.signedBy.length} of ${m.quorum} signatures needed`,
           severity: "quorum",
         },
       ];

@@ -1,15 +1,15 @@
 import { ok } from "@/lib/api";
 import { verifyWebhook } from "@/lib/paypal";
-import { listKitties, mutate, log } from "@/lib/store";
+import { findKittyContaining, log, mutate } from "@/lib/store";
 import { recordContribution } from "@/lib/agent";
 import type { Currency } from "@/lib/types";
 
-// PayPal webhook receiver. Subscribe to INVOICING.INVOICE.PAID and
-// PAYMENT.PAYOUTS-ITEM.* in the developer dashboard and set PAYPAL_WEBHOOK_ID.
+// PayPal webhook receiver. Subscribed events: INVOICING.INVOICE.PAID, PAYMENT.PAYOUTS-ITEM.*
+// Signatures are verified with PayPal's verify-webhook-signature API before anything changes.
 export async function POST(req: Request) {
   const body = await req.json();
   const verified = await verifyWebhook(req.headers, body);
-  if (!verified) return ok({ ignored: true, reason: "signature not verified" }, 200);
+  if (!verified) return ok({ ignored: true, reason: "signature not verified" });
 
   const type = String(body.event_type ?? "");
   if (type === "INVOICING.INVOICE.PAID") {
@@ -17,21 +17,27 @@ export async function POST(req: Request) {
     const invoiceId = inv?.id as string | undefined;
     const paid = Number(inv?.payments?.paid_amount?.value ?? inv?.amount?.value ?? 0);
     const currency = (inv?.payments?.paid_amount?.currency_code ?? inv?.detail?.currency_code) as Currency;
-    for (const k of listKitties()) {
-      const m = k.members.find((x) => x.invoiceId === invoiceId);
-      if (m && m.paid < m.share) {
-        await mutate(k.id, (kk) => recordContribution(kk, kk.members.find((x) => x.id === m.id)!, { amount: paid, currency: currency || m.currency }, invoiceId!));
+    if (invoiceId) {
+      const found = await findKittyContaining(invoiceId);
+      const m = found?.members.find((x) => x.invoiceId === invoiceId);
+      if (found && m && m.paid < m.share) {
+        await mutate(found.id, (k) => {
+          const mm = k.members.find((x) => x.id === m.id)!;
+          log(k, { actor: "paypal", kind: "info", title: "Webhook received: INVOICING.INVOICE.PAID", detail: `Invoice ${invoiceId}` });
+          return recordContribution(k, mm, { amount: paid, currency: currency || mm.currency }, invoiceId);
+        });
       }
     }
   } else if (type.startsWith("PAYMENT.PAYOUTS-ITEM.")) {
-    const batchId = body.resource?.payout_batch_id;
-    for (const k of listKitties()) {
-      const po = k.payouts.find((p) => p.paypalBatchId === batchId);
-      if (po)
-        await mutate(k.id, (kk) => {
-          const p = kk.payouts.find((x) => x.id === po.id)!;
+    const batchId = body.resource?.payout_batch_id as string | undefined;
+    if (batchId) {
+      const found = await findKittyContaining(batchId);
+      if (found)
+        await mutate(found.id, (k) => {
+          const p = k.payouts.find((x) => x.paypalBatchId === batchId);
+          if (!p) return;
           p.status = String(body.resource?.transaction_status ?? type.split(".").pop());
-          log(kk, { actor: "paypal", kind: "payout", title: `Payout update: ${p.status}`, ref: batchId });
+          log(k, { actor: "paypal", kind: "payout", title: `Webhook received: payout ${p.status}`, ref: batchId });
         });
     }
   }

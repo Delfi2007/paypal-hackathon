@@ -18,7 +18,8 @@ declare global {
   interface Window { paypal?: { Buttons: PayPalButtons } }
 }
 
-export function PayShare({ kittyId, memberId }: { kittyId: string; memberId: string }) {
+export function PayShare({ kittyId }: { kittyId: string }) {
+  const [meId, setMeId] = useState("");
   const [k, setK] = useState<Kitty | null>(null);
   const [mode, setMode] = useState<ModeStatus | null>(null);
   const [quote, setQuote] = useState<number | null>(null);
@@ -30,10 +31,10 @@ export function PayShare({ kittyId, memberId }: { kittyId: string; memberId: str
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    fetch(`/api/kitties/${kittyId}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { setK(d.kitty); setMode(d.mode); });
+    fetch(`/api/kitties/${kittyId}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d.error) { window.location.href = `/login?next=/pay/${kittyId}`; return; } setK(d.kitty); setMode(d.mode); setMeId(d.me); });
   }, [kittyId]);
 
-  const m = k?.members.find((x) => x.id === memberId);
+  const m = k?.members.find((x) => x.id === meId);
   const owedBase = m ? Math.max(0, m.share - m.paid) : 0;
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export function PayShare({ kittyId, memberId }: { kittyId: string; memberId: str
   }, [k, m, owedBase]);
 
   async function createOrder() {
-    const r = await fetch("/api/paypal/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kittyId, memberId }) });
+    const r = await fetch("/api/paypal/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kittyId }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
     return j.id as string;
@@ -51,7 +52,7 @@ export function PayShare({ kittyId, memberId }: { kittyId: string; memberId: str
   async function capture(orderId: string) {
     setState("authorising");
     const started = Date.now();
-    const r = await fetch(`/api/paypal/orders/${orderId}/capture`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kittyId, memberId }) });
+    const r = await fetch(`/api/paypal/orders/${orderId}/capture`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kittyId }) });
     const j = await r.json();
     await new Promise((res) => setTimeout(res, Math.max(0, 1400 - (Date.now() - started)))); // let the animation breathe
     if (!r.ok) { setState("error"); setMsg(j.error); return; }
