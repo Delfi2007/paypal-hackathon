@@ -59,6 +59,7 @@ export type ActionType =
   | "pay_vendor"
   | "add_vendor"
   | "split_bill"
+  | "record_cash"
   | "amend_mandate"
   | "note";
 

@@ -1,5 +1,5 @@
 import { fail, needKitty, ok } from "@/lib/api";
-import { log, mutate } from "@/lib/store";
+import { HttpError, log, mutate } from "@/lib/store";
 import { proposeAction } from "@/lib/agent";
 import type { AgentAction } from "@/lib/types";
 
@@ -10,12 +10,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const { me } = await needKitty(id);
     const { action, label } = (await req.json()) as { action: AgentAction; label?: string };
-    const allowed = ["pay_vendor", "request_contributions", "send_reminders", "amend_mandate", "add_vendor"];
+    const allowed = ["pay_vendor", "request_contributions", "send_reminders", "amend_mandate", "add_vendor", "record_cash"];
     if (!allowed.includes(action?.type)) throw new Error("Unsupported action");
+    if (action.type === "record_cash" && me.role !== "organizer") throw new HttpError(403, "Only the organiser can record cash payments");
     const out = await mutate(id, async (k) => {
       const actor = k.members.find((m) => m.id === me.id)!;
       if (label) log(k, { actor: "member", actorName: actor.name, kind: "command", title: label });
-      return proposeAction(k, { ...action, reasoning: action.reasoning || `Requested by ${actor.name}` }, actor);
+      const params = action.type === "record_cash" ? { ...action.params, byName: actor.name } : action.params;
+      return proposeAction(k, { ...action, params, reasoning: action.reasoning || `Requested by ${actor.name}` }, actor);
     });
     return ok(out);
   } catch (e) {

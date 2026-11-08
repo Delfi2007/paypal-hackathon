@@ -161,7 +161,16 @@ export default function WalletPage() {
 }
 
 function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<typeof useKitty>["kitty"]["members"][0]; cur: Currency; me: boolean }) {
+  const { actor, reload } = useKitty();
+  const [busy, setBusy] = useState(false);
   const done = m.paid >= m.share;
+  async function cash() {
+    setBusy(true);
+    try {
+      await api(`/api/kitties/${kittyId}/action`, { label: `Record ${m.name}'s share as paid in cash`, action: { type: "record_cash", params: { memberId: m.id }, reasoning: `${m.name} handed over their share in cash.` } });
+      await reload();
+    } finally { setBusy(false); }
+  }
   return (
     <div className={`panel !rounded-[1.4rem] p-4 flex flex-col items-center text-center hover:-translate-y-1 transition-transform ${me ? "ring-2 ring-blue/40" : ""}`}>
       <div className="relative">
@@ -179,6 +188,9 @@ function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<ty
         <Link href={`/pay/${kittyId}`} className="btn btn-blue !py-1.5 !px-3 text-xs mt-2">Pay my share</Link>
       ) : (
         <Chip tone="warn" className="mt-2">{m.remindersSent ? `${m.remindersSent} reminder${m.remindersSent > 1 ? "s" : ""}` : "Hasn't paid yet"}</Chip>
+      )}
+      {!done && actor.role === "organizer" && (
+        <button onClick={cash} disabled={busy} className="mt-2 text-[11px] font-semibold text-blue hover:underline">{busy ? "Recording…" : "Mark paid in cash"}</button>
       )}
     </div>
   );

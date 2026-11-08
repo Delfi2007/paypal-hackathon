@@ -185,6 +185,21 @@ export async function invoiceStatus(id: string): Promise<{ status: string; paid:
   return { status: j.status, paid: Number(j.payments?.paid_amount?.value ?? 0) };
 }
 
+/** Record a payment made outside PayPal (cash, bank transfer) against an invoice, so PayPal marks it paid. */
+export async function recordInvoicePayment(id: string, amount: number, currency: Currency, note: string) {
+  if (!paypalConfigured() || id.startsWith("SIM-")) return { simulated: true };
+  await pp(`/v2/invoicing/invoices/${id}/payments`, {
+    method: "POST",
+    json: {
+      method: "CASH",
+      payment_date: new Date().toISOString().slice(0, 10),
+      note: note.slice(0, 2000),
+      amount: money(amount, currency),
+    },
+  });
+  return { simulated: false };
+}
+
 export async function remindInvoice(id: string, subject: string, note: string) {
   if (!paypalConfigured() || id.startsWith("SIM-")) return { simulated: true };
   await pp(`/v2/invoicing/invoices/${id}/remind`, {

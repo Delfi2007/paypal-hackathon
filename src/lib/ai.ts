@@ -6,9 +6,13 @@ import type { AgentAction, Kitty, Member, Currency, VendorCategory } from "./typ
 import { fmt } from "./money";
 import { poolBalance } from "./policy";
 
-export const AI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+export const AI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash";
 const geminiKey = () => process.env.KITTY_GEMINI_KEY || process.env.GEMINI_API_KEY;
 export const aiConfigured = () => !!geminiKey();
+
+// Models are tried in order. Busy (503), rate-limited (429), retired (404) or slow models
+// fall through to the next one, so a flaky model never takes the app down.
+const MODELS = Array.from(new Set([AI_MODEL, "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.7-flash", "gemini-flash-lite-latest"]));
 
 async function gemini(
   system: string,
@@ -17,28 +21,34 @@ async function gemini(
 ): Promise<unknown> {
   const parts: unknown[] = [{ text: user }];
   if (image) parts.push({ inline_data: { mime_type: image.mime, data: image.data } });
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": geminiKey()!,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.4 },
-      }),
-      signal: AbortSignal.timeout(45000),
-    },
-  );
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 300)}`);
-  const j = (await r.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-  return JSON.parse(text.replace(/^```json\s*|```$/g, "").trim());
+  let lastErr: Error = new Error("Gemini unavailable");
+  for (const model of MODELS) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey()! },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts }],
+          generationConfig: { responseMimeType: "application/json", temperature: 0.4, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+        signal: AbortSignal.timeout(image ? 40000 : 20000),
+      });
+      if (!r.ok) {
+        const body = (await r.text()).slice(0, 200);
+        lastErr = new Error(`Gemini ${model} ${r.status}: ${body}`);
+        if ([400, 429, 500, 503, 404].includes(r.status)) continue;
+        throw lastErr;
+      }
+      const j = (await r.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      const text = j.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+      return JSON.parse(text.replace(/^```json\s*|```$/g, "").trim());
+    } catch (e) {
+      lastErr = e as Error;
+      if (!/Gemini .* (400|429|500|503|404)|timed out|aborted|JSON|fetch failed/i.test(lastErr.message) && lastErr.name !== "TimeoutError") throw lastErr;
+    }
+  }
+  throw lastErr;
 }
 
 function kittyContext(k: Kitty) {

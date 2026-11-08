@@ -42,8 +42,8 @@ if (Array.isArray(existing) && existing.find((k) => k.name === "Goa Trip (judge 
     baseCurrency: "EUR", totalBudget: 3000, perPaymentCap: 1000, quorum: 2, deadlineDays: 7,
     members: [{ name: "a" }, { name: "b" }, { name: "c" }],
     vendors: [
-      { name: "Beach Villa", email: process.env.PAYEE_EMAIL || "sb-snium53762550@business.example.com", category: "stay", approved: true },
-      { name: "Scooter Rental", email: process.env.PAYEE_EMAIL || "sb-snium53762550@business.example.com", category: "transport", approved: false },
+      { name: "Beach Villa", email: process.env.PAYEE_EMAIL || "sb-ukfe353773873@personal.example.com", category: "stay", approved: true },
+      { name: "Scooter Rental", email: process.env.PAYEE_EMAIL || "sb-ukfe353773873@personal.example.com", category: "transport", approved: false },
     ],
   };
   const c = await owner("POST", "/api/kitties", { draft });
