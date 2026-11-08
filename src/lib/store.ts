@@ -56,6 +56,36 @@ export async function updateUser(id: string, patch: { name?: string; currency?: 
   });
 }
 
+// ------------------------------------------------------------ api tokens
+
+const hashToken = (t: string) => crypto.createHash("sha256").update(t).digest("hex");
+
+/** Personal access token so an AI agent (or script) can act as this user. Shown once, stored hashed. */
+export async function createApiToken(userId: string, name: string): Promise<{ id: string; token: string }> {
+  const token = "kty_" + crypto.randomBytes(24).toString("base64url");
+  const id = uid("t_");
+  await (await db()).execute({ sql: "INSERT INTO api_tokens (id,user_id,name,token_hash,created_at) VALUES (?,?,?,?,?)", args: [id, userId, name, hashToken(token), new Date().toISOString()] });
+  return { id, token };
+}
+
+export async function userByApiToken(token: string): Promise<UserRow | undefined> {
+  if (!token.startsWith("kty_")) return undefined;
+  const c = await db();
+  const r = await c.execute({ sql: "SELECT user_id FROM api_tokens WHERE token_hash = ?", args: [hashToken(token)] });
+  if (!r.rows[0]) return undefined;
+  void c.execute({ sql: "UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?", args: [new Date().toISOString(), hashToken(token)] });
+  return getUserById(String(r.rows[0].user_id));
+}
+
+export async function listApiTokens(userId: string) {
+  const r = await (await db()).execute({ sql: "SELECT id,name,created_at,last_used_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC", args: [userId] });
+  return r.rows.map((x) => ({ id: String(x.id), name: String(x.name), createdAt: String(x.created_at), lastUsedAt: x.last_used_at ? String(x.last_used_at) : null }));
+}
+
+export async function deleteApiToken(userId: string, id: string) {
+  await (await db()).execute({ sql: "DELETE FROM api_tokens WHERE id = ? AND user_id = ?", args: [id, userId] });
+}
+
 // ---------------------------------------------------------------- kitties
 
 const locks = new Map<string, Promise<unknown>>();

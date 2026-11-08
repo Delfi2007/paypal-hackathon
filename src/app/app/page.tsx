@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Gavel, Loader2, PenLine, Plus, Users } from "lucide-react";
 import { Chip, Logo, api, BigMoney } from "@/components/kit";
 import { NotificationBell, SavedTick, UserMenu, useMe } from "@/components/session";
+import { AgentAccess } from "@/components/AgentAccess";
 import { fmt } from "@/lib/money";
 import type { Currency } from "@/lib/types";
 
@@ -123,6 +124,8 @@ export default function AppHome() {
             </div>
           </form>
         </section>
+
+        <AgentAccess />
       </div>
     </main>
   );

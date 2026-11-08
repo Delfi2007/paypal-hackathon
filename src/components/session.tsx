@@ -33,6 +33,32 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const seen = useRef<Set<string>>(new Set());
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushErr, setPushErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ subscribed: boolean }>("/api/push/subscribe").then((r) => setPushOn(r.subscribed)).catch(() => {});
+  }, []);
+
+  async function enablePush() {
+    setPushBusy(true); setPushErr(null);
+    try {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) throw new Error("This browser does not support push notifications");
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Notifications are blocked in the browser settings");
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const { key } = await api<{ key: string | null }>("/api/push/key");
+      if (!key) throw new Error("Push is not configured on the server");
+      const pad = "=".repeat((4 - (key.length % 4)) % 4);
+      const raw = atob((key + pad).replace(/-/g, "+").replace(/_/g, "/"));
+      const appKey = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+      const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey }));
+      await api("/api/push/subscribe", { subscription: sub.toJSON() });
+      setPushOn(true);
+    } catch (e) { setPushErr((e as Error).message); } finally { setPushBusy(false); }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -70,7 +96,6 @@ export function NotificationBell() {
       setUnread(0);
       setItems((x) => x.map((n) => ({ ...n, read: true })));
     }
-    if (next && typeof Notification !== "undefined" && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   }
 
   return (
@@ -81,7 +106,13 @@ export function NotificationBell() {
       </button>
       {open && (
         <div className="absolute right-0 mt-2 w-[340px] max-h-[460px] overflow-auto panel !rounded-2xl p-2 z-50 pop">
-          <p className="label px-3 py-2">Notifications</p>
+          <div className="flex items-center justify-between px-3 py-2">
+            <p className="label">Notifications</p>
+            {pushOn ? <span className="text-[11px] font-semibold text-ok flex items-center gap-1"><Check size={12} /> Device alerts on</span> : (
+              <button onClick={enablePush} disabled={pushBusy} className="text-[11px] font-semibold text-blue hover:underline">{pushBusy ? "Enabling…" : "Turn on device alerts"}</button>
+            )}
+          </div>
+          {pushErr && <p className="px-3 pb-2 text-xs text-bad">{pushErr}</p>}
           {items.length === 0 && <p className="px-3 py-6 text-sm text-mute text-center">Nothing yet. Votes, payments and reminders show up here.</p>}
           {items.map((n) => {
             const body = (

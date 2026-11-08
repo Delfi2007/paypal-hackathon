@@ -2,8 +2,8 @@
 // No third-party auth service, so it works identically on localhost and in production.
 
 import crypto from "node:crypto";
-import { cookies } from "next/headers";
-import { getUserById, HttpError, type UserRow } from "./store";
+import { cookies, headers } from "next/headers";
+import { getUserById, HttpError, userByApiToken, type UserRow } from "./store";
 
 const COOKIE = "kitty_session";
 const TTL_DAYS = 30;
@@ -49,6 +49,8 @@ export async function endSession() {
 }
 
 export async function currentUser(): Promise<UserRow | undefined> {
+  const bearer = (await headers()).get("authorization");
+  if (bearer?.toLowerCase().startsWith("bearer ")) return userByApiToken(bearer.slice(7).trim());
   const raw = (await cookies()).get(COOKIE)?.value;
   if (!raw) return undefined;
   const [payload, sig] = raw.split(".");

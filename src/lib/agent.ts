@@ -97,6 +97,10 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
   }
 
   // Needs the group, or waiting for the pool to fill up.
+  // "Queued" only when funds are the sole problem; if a vote is also needed it is a vote first,
+  // and it will queue for funds after the group approves.
+  const quorumIssues = policy.checks.some((c) => !c.pass && c.severity === "quorum");
+  const queuedOnly = fundsOnly && !quorumIssues;
   const proposal: Proposal = {
     id: uid("p_"),
     createdAt: new Date().toISOString(),
@@ -106,25 +110,23 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
     approvals: [actor.id],
     rejections: [],
     title: title(k, action),
-    awaitingFunds: fundsOnly,
+    awaitingFunds: queuedOnly,
     requestedBy: actor.id,
   };
-  // If the only issue is funds, and nothing else needs a vote, it auto-runs later.
-  const quorumIssues = policy.checks.some((c) => !c.pass && c.severity === "quorum");
-  if (fundsOnly && !quorumIssues) proposal.preApproved = true;
+  if (queuedOnly) proposal.preApproved = true;
   k.proposals.unshift(proposal);
-  if (!fundsOnly || quorumIssues)
+  if (!queuedOnly)
     notify(k.members.filter((m) => m.id !== actor.id).map((m) => m.id), { kittyId: k.id, kind: "vote", title: `Your vote: ${proposal.title}`, body: `${actor.name} asked the group — needs ${k.mandate.quorum} approvals.`, href: `/k/${k.id}/approvals` });
   log(k, {
     actor: "policy",
     kind: "policy",
-    title: fundsOnly
+    title: queuedOnly
       ? `Queued until the pool is funded — ${proposal.title}`
       : `Needs ${k.mandate.quorum} votes — ${proposal.title}`,
     policy,
     reasoning: action.reasoning,
   });
-  return { decision: fundsOnly ? "queued" : "needs_quorum" };
+  return { decision: queuedOnly ? "queued" : "needs_quorum" };
 }
 
 export async function execute(k: Kitty, action: AgentAction) {
