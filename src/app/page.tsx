@@ -1,212 +1,163 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, ArrowDown, ArrowLeft, Check, ShieldCheck, Users, ScrollText, MessageSquareText, X } from "lucide-react";
-import { Nav } from "@/components/Nav";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Check, Play, ShieldCheck, Sparkles, Vote } from "lucide-react";
+import { SiteNav } from "@/components/SiteNav";
+import { FEATURES, featureHref } from "@/lib/features";
 
 export default function Home() {
   return (
-    <main className="min-h-screen w-full overflow-x-hidden">
-      {/* ------------------------------------------------ hero: full-bleed photo */}
-      <section className="relative w-full h-[100svh] min-h-[760px] max-h-[1100px] flex flex-col">
-        <Image src="/images/hero.webp" alt="Santorini cliffside village above the caldera" fill priority sizes="100vw" className="object-cover object-[65%_80%]" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#eef3f6]/85 via-[#eef3f6]/30 to-transparent lg:from-[#eef3f6]/70 lg:via-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1d3f6e]/35 to-transparent" />
+    <main className="min-h-screen w-full overflow-x-hidden bg-white">
+      {/* ------------------------------------------------ hero (sky) */}
+      <section className="p-3 sm:p-4">
+        <div className="relative rounded-[2rem] overflow-hidden min-h-[92vh] flex flex-col">
+          <Image src="/images/sky.webp" alt="Blue sky with clouds" fill priority sizes="100vw" className="object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0a5bff]/30 via-transparent to-white/10" />
+          <div className="relative px-5 sm:px-10 pt-5"><SiteNav light /></div>
 
-        <div className="relative z-20 px-6 sm:px-10 lg:px-16 pt-6">
-          <Nav />
-        </div>
-
-        <div className="relative z-10 flex-1 flex flex-col px-6 sm:px-10 lg:px-16 pb-16">
-          <div className="mt-8 lg:mt-10 max-w-2xl rise">
-            <p className="eyebrow leading-6 !text-ink">
-              An AI treasurer
-              <br />
-              for every
-              <br />
-              group trip
-            </p>
-            <span className="rule my-6 text-ink" />
-            <h1 className="display text-[3.4rem] sm:text-7xl xl:text-[5.8rem]">
-              Share the Trip,
-              <br />
-              <em className="text-aegean">not</em> the Chasing.
+          <div className="relative flex-1 flex flex-col items-center text-center px-5 pt-14 sm:pt-20">
+            <span className="rise inline-flex items-center gap-2 rounded-full bg-white/20 backdrop-blur border border-white/30 px-3 py-1 text-xs font-semibold text-white">
+              <span className="size-1.5 rounded-full bg-mint" /> Built on PayPal sandbox · Orders · Invoicing · Payouts
+            </span>
+            <h1 className="display text-white text-5xl sm:text-7xl xl:text-[5.6rem] font-medium mt-6 rise drop-shadow-[0_4px_30px_rgba(0,40,140,.35)]" style={{ animationDelay: ".05s" }}>
+              Your group money.<br />On autopilot.
             </h1>
-            <p className="mt-7 max-w-md text-lg text-ink leading-relaxed">
-              Kitty collects everyone&apos;s share through PayPal, pays the hotel and the boat, and nudges the friend who
-              always forgets. It spends only inside the rules your group signs.
+            <p className="text-white/90 text-lg mt-5 max-w-xl rise" style={{ animationDelay: ".1s" }}>
+              Kitty is an AI treasurer. It collects everyone&apos;s share through PayPal, pays the vendors and chases the friend who forgot. It only spends inside rules your group signs.
             </p>
-            <div className="mt-9 flex flex-wrap gap-3">
-              <Link href="/k/santorini" className="pill pill-dark">
-                Open the Santorini kitty <ArrowRight size={16} />
-              </Link>
-              <Link href="/new" className="pill pill-line bg-paper/60 backdrop-blur">
-                Start your own
-              </Link>
+            <div className="mt-8 flex flex-wrap justify-center gap-3 rise" style={{ animationDelay: ".15s" }}>
+              <Link href="/k/santorini" className="btn btn-dark !py-3.5">Open the live demo <Sparkles size={15} /></Link>
+              <Link href="/k/santorini/agent" className="btn bg-white/20 backdrop-blur border border-white/40 text-white !py-3.5">Talk to the agent <Play size={14} /></Link>
+            </div>
+
+            {/* floating product cards */}
+            <div className="relative mt-auto w-full max-w-5xl h-[260px] sm:h-[300px]">
+              <FloatCard className="left-0 sm:left-[4%] top-10 w-[230px]" delay="0s" r="-6deg">
+                <div className="flex items-center justify-between"><span className="text-xs text-mute">Mukesh paid</span><span className="text-[10px] rounded-full bg-ok-soft text-[#0e8f40] px-2 py-0.5 font-semibold">+ Received</span></div>
+                <p className="num text-3xl font-semibold mt-2">+ £772<span className="text-mute text-lg">.83</span></p>
+                <p className="text-xs text-mute mt-1">→ €900.00 settled to the pool</p>
+                <div className="mt-3 flex items-center gap-2 text-xs"><span className="grid place-items-center size-6 rounded-full bg-blue text-white"><ArrowDownLeft size={12} /></span> PayPal Orders v2</div>
+              </FloatCard>
+              <FloatCard className="left-[calc(50%-130px)] top-0 w-[260px] z-10" delay="-2s">
+                <p className="text-xs text-mute">Pay Caldera Cliff Suites</p>
+                <p className="num text-3xl font-semibold mt-1">€1,800<span className="text-mute text-lg">.00</span></p>
+                <ul className="mt-3 space-y-1.5 text-xs">
+                  <li className="flex gap-1.5"><Check size={13} className="text-ok" /> Pre-approved payee</li>
+                  <li className="flex gap-1.5"><Check size={13} className="text-ok" /> Pool has €2,700</li>
+                  <li className="flex gap-1.5 text-[#6a4bd8] font-semibold"><Vote size={13} /> Over €1,500 cap · 2/3 votes</li>
+                </ul>
+                <div className="mt-3 h-9 rounded-full bg-blue text-white text-xs font-semibold grid place-items-center">Approve as Ana</div>
+              </FloatCard>
+              <FloatCard className="right-0 sm:right-[4%] top-12 w-[230px]" delay="-4s" r="6deg">
+                <p className="text-xs text-mute">Pool balance</p>
+                <p className="num text-3xl font-semibold mt-1">€2,700<span className="text-mute text-lg">.00</span></p>
+                <svg viewBox="0 0 200 50" className="w-full h-12 mt-2"><path d="M0 45 L40 38 L70 30 L100 32 L130 18 L160 20 L200 6" fill="none" stroke="#16c75a" strokeWidth="2.5" strokeLinecap="round" /></svg>
+                <p className="text-xs text-mute">3 of 5 paid · 6 days left</p>
+              </FloatCard>
             </div>
           </div>
+        </div>
+      </section>
 
-          <div className="mt-auto pt-8 flex items-end gap-6">
-            <div className="hidden sm:block text-paper drop-shadow">
-              <p className="eyebrow !text-paper">01 / 04</p>
-              <p className="eyebrow !text-paper mt-4 leading-6">Speak<br />Sign<br />Vote<br />Settle</p>
-              <div className="mt-5 flex gap-2">
-                <span className="grid place-items-center size-9 rounded-full border border-paper/70"><ArrowLeft size={14} /></span>
-                <span className="grid place-items-center size-9 rounded-full border border-paper/70"><ArrowRight size={14} /></span>
+      {/* ------------------------------------------------ PayPal rail */}
+      <section className="py-8 overflow-hidden border-b border-line">
+        <div className="flex w-max marquee gap-14 text-ink-2/70 font-semibold tracking-[0.2em] text-sm uppercase">
+          {[...Array(2)].flatMap((_, j) => ["Orders v2", "JS SDK Buttons", "Invoicing v2", "Payouts v1", "Webhooks", "Multi-currency", "AI agent", "Policy engine", "Quorum votes", "Vision split"].map((t) => <span key={`${j}${t}`} className="flex items-center gap-14">{t}<span className="size-1.5 rounded-full bg-blue/40" /></span>))}
+        </div>
+      </section>
+
+      {/* ------------------------------------------------ three pillars */}
+      <section className="px-5 sm:px-10 lg:px-16 py-24 max-w-7xl mx-auto">
+        <h2 className="display text-4xl sm:text-6xl font-medium text-center">Money should move as fast<br />as <span className="text-sky">your group does.</span></h2>
+        <p className="text-center text-ink-2 mt-4">Agents propose. Policy decides. Friends vote. PayPal moves the money.</p>
+        <div className="mt-14 grid gap-6 md:grid-cols-3">
+          <Pillar title="Speak it." text="Tell Kitty what you need in plain words. It plans the actions and explains each one." link="/k/santorini/agent" cta="Talk to the agent" bg="bg-[#eef4ff]">
+            <div className="panel p-4 w-[85%] -rotate-2">
+              <p className="text-xs rounded-2xl bg-ink text-white px-3 py-2 w-fit ml-auto">Pay the hotel deposit & nudge Kenji</p>
+              <p className="text-xs rounded-2xl bg-soft px-3 py-2 w-fit mt-2">Lining up €1,800 to Caldera Cliff Suites, and sending Kenji a friendly nudge.</p>
+            </div>
+          </Pillar>
+          <Pillar title="Sign it." text="A mandate with a budget, a cap, payees and a quorum. A deterministic policy engine enforces it, and the AI can't get around it." link="/k/santorini/approvals" cta="See the rules" bg="bg-[#eefaf3]">
+            <div className="panel p-4 w-[85%] rotate-2">
+              <div className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={16} className="text-ok" /> Policy check</div>
+              <ul className="mt-2 space-y-1 text-xs"><li>✓ Within total budget</li><li>✓ Pre-approved payee</li><li className="text-[#6a4bd8] font-semibold">✕ Over per-payment cap → vote</li></ul>
+            </div>
+          </Pillar>
+          <Pillar title="Settle it." text="Friends pay in their own currency with PayPal. Approved payouts go out the moment the pool can cover them." link="/pay/santorini/m_kenji" cta="Open a pay link" bg="bg-[#f5f0ff]">
+            <div className="panel p-4 w-[85%] -rotate-1">
+              <p className="text-xs text-mute">Kenji pays in JPY</p>
+              <p className="num text-2xl font-semibold">¥147,000</p>
+              <p className="text-xs text-ok font-semibold mt-1">→ released queued sail payout</p>
+            </div>
+          </Pillar>
+        </div>
+      </section>
+
+      {/* ------------------------------------------------ feature directory */}
+      <section id="features" className="px-5 sm:px-10 lg:px-16 pb-24 max-w-7xl mx-auto scroll-mt-10">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="label">Every feature, one click away</p>
+            <h2 className="display text-4xl sm:text-5xl font-medium mt-1">Find any feature</h2>
+          </div>
+          <p className="text-ink-2 max-w-sm text-sm">Each card opens the exact page in the live demo where you can try that feature.</p>
+        </div>
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {FEATURES.map((f) => (
+            <Link key={f.n} href={featureHref(f)} className="group panel p-6 flex flex-col hover:-translate-y-1 hover:shadow-xl transition-all">
+              <div className="flex items-center justify-between">
+                <span className="num text-sm font-semibold text-mute">{f.n}</span>
+                <span className={`text-[10px] font-bold uppercase tracking-wider rounded-full px-2 py-0.5 ${f.tag === "core" ? "bg-sky-soft text-blue" : "bg-[#efe9ff] text-[#6a4bd8]"}`}>{f.tag === "core" ? "Core" : "Plus"}</span>
+              </div>
+              <h3 className="font-semibold text-lg mt-4 leading-snug">{f.title}</h3>
+              <p className="text-sm text-ink-2 mt-2 flex-1">{f.blurb}</p>
+              {f.paypal && <p className="text-[11px] font-semibold text-[#003087] mt-3">PayPal · {f.paypal}</p>}
+              <span className="mt-4 text-sm font-semibold text-blue flex items-center gap-1">Open {f.pageName} <ArrowUpRight size={14} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition" /></span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ------------------------------------------------ Prime-style band */}
+      <section className="p-3 sm:p-4 bg-[#d6d6d8]">
+        <div className="relative rounded-[2rem] overflow-hidden bg-[#f1efee] min-h-[560px]">
+          <Image src="/images/coins.webp" alt="Frosted glass coins" fill sizes="100vw" className="object-cover object-[75%_center]" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#f1efee] via-transparent to-transparent" />
+          <div className="relative h-full min-h-[560px] flex flex-col justify-end p-6 sm:p-12">
+            <div className="flex flex-wrap items-end justify-between gap-8">
+              <h2 className="display text-6xl sm:text-8xl xl:text-[8.5rem] font-light leading-[0.88]">Real-time<br />settlement</h2>
+              <div className="max-w-xs">
+                <p className="text-lg leading-snug">Every friend pays in their own currency. The pool settles in one, live, and the moment it&apos;s funded the queued payouts go out.</p>
+                <Link href="/k/santorini" className="btn btn-black mt-6 !pl-6 !pr-2 !py-2">JUMP IN <span className="grid place-items-center size-9 rounded-full bg-white text-ink"><ArrowRight size={16} /></span></Link>
               </div>
             </div>
-
-            {/* live policy card */}
-            <div className="ml-auto w-full max-w-[350px] rounded-[1.25rem] bg-paper/90 backdrop-blur-md shadow-2xl shadow-ink/25 p-5 rise" style={{ animationDelay: ".25s" }}>
-              <p className="eyebrow">Policy check · live</p>
-              <p className="display text-2xl mt-2">Pay Caldera Cliff Suites €1,800</p>
-              <ul className="mt-4 space-y-2 text-sm">
-                <li className="flex gap-2"><Check size={16} className="text-olive shrink-0" /> Pool has €2,700</li>
-                <li className="flex gap-2"><Check size={16} className="text-olive shrink-0" /> Pre-approved payee</li>
-                <li className="flex gap-2"><X size={16} className="text-bloom shrink-0" /> Over the €1,500 cap</li>
-              </ul>
-              <div className="mt-4 flex items-center justify-between rounded-xl bg-bloom-soft/70 px-3 py-2 text-sm">
-                <span className="text-bloom font-medium">Needs 3 votes</span>
-                <span className="flex -space-x-2">
-                  {[212, 28, 160].map((h) => (
-                    <span key={h} className="size-6 rounded-full border-2 border-paper" style={{ background: `hsl(${h} 55% 55%)` }} />
-                  ))}
-                </span>
-              </div>
-            </div>
           </div>
         </div>
       </section>
 
-      {/* ------------------------------------------------ wordmark band */}
-      <section className="relative w-full -mt-10 z-10 rounded-t-[3rem] bg-cream px-6 sm:px-10 lg:px-16 pt-20 pb-16" id="how">
-        <div className="flex flex-col lg:flex-row items-center gap-8">
-          <div className="flex-1 text-center">
-            <h2 className="display text-5xl sm:text-7xl xl:text-8xl" style={{ letterSpacing: "0.32em", textTransform: "uppercase" }}>
-              Mandate
-            </h2>
-            <p className="eyebrow mt-5 flex items-center justify-center gap-4">
-              <span className="rule" /> the rules your money keeps <span className="rule" />
-            </p>
-          </div>
-          <p className="eyebrow leading-6 lg:w-40 text-center lg:text-left">
-            Agents propose
-            <br />
-            Policy decides
-            <br />
-            Friends vote
-            <br />
-            <span className="rule mt-2" />
-          </p>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------ editorial gallery */}
-      <section className="w-full px-6 sm:px-10 lg:px-16 pb-24 grid gap-8 lg:grid-cols-[minmax(0,4fr)_minmax(0,5fr)_minmax(0,3.2fr)_minmax(0,3.2fr)] items-start">
-        <div className="lg:pt-8 pr-4">
-          <h3 className="display text-5xl xl:text-6xl uppercase leading-[0.95]">
-            Money,
-            <br />
-            Minded.
-          </h3>
-          <p className="mt-5 text-ink-soft leading-relaxed max-w-sm">
-            Most AI payment demos let a model call a payments API directly. Kitty separates the two. The AI only{" "}
-            <em>proposes</em>. A deterministic policy engine checks every action against the group&apos;s signed mandate
-            before PayPal is touched.
-          </p>
-          <Link href="/k/santorini" className="inline-flex items-center gap-2 mt-7 link-under">
-            See it run <ArrowRight size={15} />
-          </Link>
-        </div>
-
-        <figure className="relative">
-          <div className="relative aspect-[4/3.3] overflow-hidden rounded-sm">
-            <Image src="/images/terrace.webp" alt="Terrace table overlooking the caldera" fill sizes="(min-width:1024px) 30vw, 100vw" className="object-cover hover:scale-[1.03] transition-transform duration-700" />
-          </div>
-          <figcaption className="script text-5xl text-ink mt-4 ml-6 relative -rotate-3 leading-[0.95]">
-            Same friends.<br />
-            <span className="ml-10">No awkward asks.</span>
-          </figcaption>
-        </figure>
-
-        <figure>
-          <div className="relative aspect-[3/4] overflow-hidden rounded-sm">
-            <Image src="/images/sail.webp" alt="Sailboats below the caldera cliffs" fill sizes="(min-width:1024px) 20vw, 100vw" className="object-cover hover:scale-[1.03] transition-transform duration-700" />
-          </div>
-          <figcaption className="eyebrow mt-4 leading-5">Speak it<br />the agent plans</figcaption>
-          <span className="rule mt-2" />
-        </figure>
-
-        <figure>
-          <div className="relative aspect-[3/4] overflow-hidden rounded-sm">
-            <Image src="/images/alley.webp" alt="Whitewashed alley with bougainvillea" fill sizes="(min-width:1024px) 20vw, 100vw" className="object-cover hover:scale-[1.03] transition-transform duration-700" />
-          </div>
-          <figcaption className="eyebrow mt-4 leading-5">Vote on it<br />the group decides</figcaption>
-          <span className="rule mt-2" />
-        </figure>
-      </section>
-
-      {/* ------------------------------------------------ pillars */}
-      <section className="w-full px-6 sm:px-10 lg:px-16 pb-24 grid gap-6 md:grid-cols-3">
-        <Pillar icon={<MessageSquareText size={20} />} n="01" title="Speak it" tone="sky"
-          body="“Pay the hotel deposit, book the sunset sail, remind whoever hasn't paid.” Kitty turns this into a plan of actions, each with its reasoning."
-          foot="AI planning agent" />
-        <Pillar icon={<ShieldCheck size={20} />} n="02" title="Sign it" tone="paper"
-          body="Budget, a per-payment cap, approved payees and a quorum. Every PayPal call is checked against these rules first. The model cannot get around it."
-          foot="Deterministic policy engine" />
-        <Pillar icon={<Users size={20} />} n="03" title="Vote on it" tone="bloom"
-          body="Anything outside the mandate becomes a proposal. Once enough friends approve, it runs on its own, or waits until the pool has the money."
-          foot="Quorum consent" />
-      </section>
-
-      <section className="w-full grid lg:grid-cols-2 border-y border-ink/10">
-        <div className="relative min-h-[460px] text-cream px-6 sm:px-10 lg:px-16 py-16 overflow-hidden">
-          <Image src="/images/sail.webp" alt="" fill sizes="50vw" className="object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-br from-aegean-deep/95 via-aegean/85 to-aegean-deep/70" />
-          <div className="relative">
-            <p className="eyebrow !text-sky">Through PayPal</p>
-            <h3 className="display text-5xl mt-4 max-w-md">Every currency in. One pool out.</h3>
-            <ul className="mt-8 space-y-4 max-w-md text-sky">
-              <li className="flex gap-3"><span className="eyebrow !text-paper w-24 shrink-0">Orders v2</span> Each friend pays their share by PayPal Checkout, in their own currency.</li>
-              <li className="flex gap-3"><span className="eyebrow !text-paper w-24 shrink-0">Invoicing</span> Kitty emails a PayPal invoice and sends reminders written for each person.</li>
-              <li className="flex gap-3"><span className="eyebrow !text-paper w-24 shrink-0">Payouts</span> Vendors are paid straight from the pool once the policy check or the group vote passes.</li>
-              <li className="flex gap-3"><span className="eyebrow !text-paper w-24 shrink-0">Webhooks</span> Payments update the ledger on their own and release any payouts that were waiting.</li>
-            </ul>
-          </div>
-        </div>
-        <div className="px-6 sm:px-10 lg:px-16 py-16 flex flex-col justify-center">
-          <ScrollText className="text-aegean" />
-          <h3 className="display text-5xl mt-4">A ledger that explains itself.</h3>
-          <p className="mt-5 text-ink-soft max-w-lg leading-relaxed">
-            Every request, reminder, vote and payout is written down with the agent&apos;s reasoning and the rules it was
-            checked against. Snap a dinner receipt and Kitty reads it, works out who had what, and splits it item by item.
-          </p>
-          <p className="script text-5xl text-bloom mt-8 -rotate-3">Good friends, clear money.</p>
-        </div>
-      </section>
-
-      <footer className="w-full px-6 sm:px-10 lg:px-16 py-10 flex flex-wrap items-center gap-6">
-        <span className="spaced text-sm font-medium">Kitty</span>
-        <span className="rule" />
-        <span className="eyebrow mx-auto" style={{ letterSpacing: "0.4em" }}>Travel together · settle lighter</span>
-        <a href="#how" className="flex items-center gap-3 eyebrow">
-          Scroll <span className="grid place-items-center size-10 rounded-full border border-ink/30"><ArrowDown size={14} /></span>
-        </a>
+      <footer className="px-5 sm:px-10 lg:px-16 py-10 flex flex-wrap items-center gap-4 text-sm text-mute">
+        <span className="font-semibold text-ink">kitty</span>
+        <span>Built for the PayPal AI Hackathon 2026 · PayPal sandbox</span>
+        <span className="ml-auto">Delfi · Mukesh Kumar · Nambert Jones</span>
       </footer>
     </main>
   );
 }
 
-function Pillar({ icon, n, title, body, foot, tone }: { icon: React.ReactNode; n: string; title: string; body: string; foot: string; tone: "sky" | "paper" | "bloom" }) {
-  const bg = tone === "sky" ? "bg-sky/60" : tone === "bloom" ? "bg-bloom-soft/60" : "bg-paper";
+function FloatCard({ children, className, delay, r }: { children: React.ReactNode; className: string; delay: string; r?: string }) {
   return (
-    <div className={`rounded-[1.5rem] ${bg} p-7 flex flex-col min-h-[320px] border border-ink/5`}>
-      <div className="flex items-center justify-between">
-        <span className="grid place-items-center size-11 rounded-full bg-paper text-aegean">{icon}</span>
-        <span className="display text-3xl text-ink/30">{n}</span>
-      </div>
-      <h4 className="display text-4xl mt-8">{title}</h4>
-      <p className="mt-4 text-ink-soft leading-relaxed">{body}</p>
-      <p className="eyebrow mt-auto pt-6 flex items-center gap-3"><span className="rule" />{foot}</p>
+    <div className={`absolute rounded-[1.4rem] bg-white p-4 text-left text-ink shadow-[0_30px_60px_-20px_rgba(10,60,180,.45)] floaty ${className}`} style={{ animationDelay: delay, ["--r" as string]: r ?? "0deg" }}>
+      {children}
+    </div>
+  );
+}
+
+function Pillar({ title, text, link, cta, bg, children }: { title: string; text: string; link: string; cta: string; bg: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className={`${bg} rounded-[1.6rem] h-60 grid place-items-center overflow-hidden`}>{children}</div>
+      <h3 className="font-semibold text-xl mt-6">{title}</h3>
+      <p className="text-ink-2 mt-2">{text}</p>
+      <Link href={link} className="mt-4 inline-block text-sm font-semibold border-b border-ink pb-0.5">{cta}</Link>
     </div>
   );
 }

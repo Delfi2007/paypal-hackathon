@@ -4,7 +4,7 @@
 
 Built for the **PayPal AI Hackathon 2026: Build What's Next with PayPal and AI**.
 
-![Kitty landing page](public/images/hero.webp)
+![Kitty](public/images/sky.webp)
 
 ## The problem
 
@@ -43,6 +43,24 @@ Letting an AI agent spend money raises the obvious question: **how does a group 
 
 The AI uses Google's Gemini API (free tier, `gemini-2.5-flash`). **Without a key, Kitty falls back to a deterministic rule-based planner**, so the demo always runs.
 
+## Where every feature lives
+
+| # | Feature | Page |
+|---|---|---|
+| 01 | Natural-language agent | `/k/santorini/agent` |
+| 02 | PayPal invoices + payment tracking (webhooks, sync) | `/k/santorini/activity` |
+| 03 | Policy engine + quorum approvals | `/k/santorini/approvals` |
+| 04 | Explainable audit timeline | `/k/santorini/activity` |
+| 05 | Payouts released once the pool is funded | `/k/santorini/send` → `/approvals` |
+| 06 | Bill photo → itemised split | `/k/santorini/split` |
+| 07 | Multi-currency pockets, one settlement | `/k/santorini` (wallet) |
+| 08 | Adaptive reminder tone | `/k/santorini/agent` |
+| 09 | Mandate from one sentence | `/new` |
+| 10 | Swipe-to-pay keypad with live policy preview | `/k/santorini/send` |
+| 11 | Member checkout page (PayPal Smart Buttons, live FX) | `/pay/santorini/m_mukesh` |
+
+The landing page has a feature directory that links each card to its page, and the app sidebar shows the feature numbers next to each page.
+
 ## Run it
 
 ```bash
@@ -64,15 +82,15 @@ Open http://localhost:3000 and click **Open the Santorini kitty**.
 
 ## Demo script (about 3 minutes)
 
-1. **Landing page:** the problem, plus the "agents propose, policy decides, friends vote" idea.
-2. **Santorini kitty:** €2,700 is in the pool. Kenji (JPY) and Mukesh (GBP) still owe.
-3. Click **Pay Caldera Cliff Suites the €1,800 deposit**. The policy engine flags it as over the €1,500 cap, and a vote opens.
-4. Switch to Nambert, then Ana, and approve. The quorum is reached and the PayPal payout runs.
-5. Click **Book the sunset sail… for €420**. It's within the mandate, so it executes instantly. Then try €1,400. The pool can't cover it, so it's **queued**.
-6. Open Mukesh's pay link and pay £ with PayPal. The pool fills, and the queued sail payout is **released automatically**.
-7. **Remind whoever hasn't paid:** each member gets a reminder in a different tone.
-8. **Snap the bill:** an itemised split by who had what. Pay it from the kitty: the tavern isn't pre-approved, so it goes to a vote.
-9. **New kitty:** describe a trip in one sentence and get a drafted mandate.
+1. **Landing page:** the sky hero with live cards, then the feature directory.
+2. **Wallet:** €2,700 in the pool and stacked EUR, GBP, USD and JPY pockets. Kenji and Mukesh still owe.
+3. **Pay vendor:** pick Caldera Cliff Suites, type 900 × 2, and swipe. The live preview warns it's over the €1,500 cap, and a vote opens.
+4. **Approvals:** switch to Nambert, then Ana, and approve. The quorum is reached and the PayPal payout runs.
+5. **Pay vendor:** €600 to the taxi when the pool can't cover it. It's **queued**.
+6. **Mukesh's pay link:** pay £ with PayPal. The card authorises and glows green, and the queued taxi payout is **released automatically**.
+7. **Agent:** “Remind whoever hasn't paid”. Each friend gets a reminder in a different tone.
+8. **Split bill:** an itemised split by who had what, paid from the kitty through the same policy engine.
+9. **Activity:** every step with its reasoning and policy checks. **New kitty:** a mandate drafted from one sentence.
 
 ## Architecture
 
@@ -85,14 +103,14 @@ src/
     paypal.ts   OAuth, Orders v2, Invoicing v2, Payouts v1, webhook verification
     store.ts    JSON-file store + seeded Santorini demo
   app/
-    page.tsx              landing
-    k/[id]                kitty dashboard
+    page.tsx              landing (feature directory)
+    k/[id]                wallet · agent · send · approvals · activity · split
     pay/[id]/[memberId]   member checkout (PayPal Smart Buttons)
     new                   natural-language kitty creation
     api/…                 commands, votes, bill, sync, orders, capture, webhook
 ```
 
-Next.js 15, React 19, Tailwind CSS 4, TypeScript. FX rates come from the free, keyless Frankfurter API (ECB data). Images were generated with Google Flow.
+Next.js 15, React 19, Tailwind CSS 4, TypeScript. FX rates come from the free, keyless Frankfurter API (ECB data). Artwork (sky, glass coins, glass card, glass leaves) was generated with Google Flow.
 
 ## Team
 
