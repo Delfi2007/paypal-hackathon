@@ -37,6 +37,7 @@ export default function AgentPage() {
     "Send everyone their PayPal request",
     `Raise the per-payment cap to ${sym}2,000`,
     "How much is left in the pool?",
+    "The trip is over, close it out and refund everyone",
   ].filter(Boolean) as string[];
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [msgs]);

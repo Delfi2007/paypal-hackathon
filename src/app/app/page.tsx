@@ -11,7 +11,7 @@ import { AgentAccess } from "@/components/AgentAccess";
 import { fmt } from "@/lib/money";
 import type { Currency } from "@/lib/types";
 
-type Row = { id: string; name: string; destination: string; tagline: string; baseCurrency: Currency; members: number; expectedMembers: number; status: "forming" | "active"; pool: number; pending: number; needsSign: boolean };
+type Row = { id: string; name: string; destination: string; tagline: string; baseCurrency: Currency; members: number; expectedMembers: number; status: "forming" | "active" | "closed"; pool: number; pending: number; needsSign: boolean };
 const CURRENCIES = ["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "SGD"];
 
 export default function AppHome() {
@@ -93,7 +93,7 @@ export default function AppHome() {
               {rows.map((r, i) => (
                 <Link key={r.id} href={`/k/${r.id}`} className="panel p-6 hover:-translate-y-1 hover:shadow-xl transition-all rise" style={{ animationDelay: `${i * 0.05}s` }}>
                   <div className="flex items-center justify-between">
-                    <Chip tone={r.status === "active" ? "ok" : "warn"}>{r.status === "active" ? "Active" : "Forming"}</Chip>
+                    <Chip tone={r.status === "active" ? "ok" : r.status === "closed" ? "mute" : "warn"}>{r.status === "active" ? "Active" : r.status === "closed" ? "Closed" : "Forming"}</Chip>
                     {r.pending > 0 && <Chip tone="lilac"><Gavel size={11} /> {r.pending} to vote</Chip>}
                   </div>
                   <h3 className="display text-3xl font-medium mt-4">{r.name}</h3>

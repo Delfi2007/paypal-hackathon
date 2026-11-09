@@ -3,7 +3,8 @@
 
 import type { AgentAction, Kitty, Member, Proposal } from "./types";
 import { evaluate, poolBalance, round2 } from "./policy";
-import { draftReminders, planCommand } from "./ai";
+import { draftReminders, planCommand, summarizeTrip } from "./ai";
+import { refundShares } from "./closeout";
 import * as paypal from "./paypal";
 import { convert, fmt } from "./money";
 import { log, notify, uid } from "./store";
@@ -22,6 +23,8 @@ function title(k: Kitty, a: AgentAction): string {
       return "Send PayPal requests to everyone who owes";
     case "send_reminders":
       return "Send payment reminders";
+    case "close_out":
+      return "Close out the trip and return the leftover pool to everyone";
     case "amend_mandate":
       return `Amend mandate: ${Object.entries(p)
         .map(([key, v]) => `${key} → ${Array.isArray(v) ? v.join(", ") : v}`)
@@ -230,6 +233,56 @@ export async function execute(k: Kitty, action: AgentAction, idemKey: string = u
         }
         await recordContribution(k, m, { amount: local, currency: m.currency }, m.invoiceId ?? "cash");
         log(k, { actor: "member", actorName: String(p.byName ?? "Organiser"), kind: "payment", title: `${m.name}'s share recorded as paid in cash`, detail: m.invoiceId ? `Recorded on PayPal invoice ${m.invoiceId}` : "No invoice yet, recorded in the kitty only" });
+        break;
+      }
+      case "close_out": {
+        if (k.status !== "active") throw new Error("This kitty is not open");
+        const shares = refundShares(k);
+        if (!shares.length) throw new Error("Nothing left to return");
+        const refunds = [];
+        for (const s of shares) {
+          const m = k.members.find((x) => x.id === s.memberId)!;
+          refunds.push({ m, base: s.base, local: await convert(s.base, k.baseCurrency, m.currency) });
+        }
+        // One Payouts batch for everybody, keyed by the proposal id: a retry can never refund twice.
+        const r = await paypal.payoutBatch({
+          ref: `${k.id}-${idemKey}-refunds`,
+          subject: `Your leftover share from ${k.name}`,
+          items: refunds.map((x) => ({
+            email: x.m.paypalEmail || x.m.email,
+            amount: x.local,
+            currency: x.m.currency,
+            note: `Your share of the leftover ${k.name} pool, returned at close-out.`,
+            itemId: `${idemKey}-${x.m.id}`,
+          })),
+        });
+        const total = round2(refunds.reduce((s, x) => s + x.base, 0));
+        const collectedTotal = round2(k.members.reduce((s, x) => s + x.paid, 0));
+        k.refunded = round2((k.refunded ?? 0) + total);
+        k.status = "closed";
+        const base = {
+          closedAt: new Date().toISOString(),
+          collected: collectedTotal,
+          spent: k.spent,
+          refunded: total,
+          refunds: refunds.map((x) => ({ memberId: x.m.id, name: x.m.name, base: x.base, local: x.local, currency: x.m.currency })),
+          paypalBatchId: r.batchId,
+          status: r.status,
+          simulated: r.simulated,
+        };
+        k.closeOut = { ...base, summary: await summarizeTrip(k, base) };
+        for (const x of refunds)
+          log(k, { actor: "paypal", kind: "payout", title: `Refunded ${x.m.name} ${fmt(x.local, x.m.currency)}`, detail: `≈ ${fmt(x.base, k.baseCurrency)} back from the pool`, amount: x.base, ref: r.batchId });
+        log(k, {
+          actor: "agent",
+          kind: "info",
+          title: `Trip closed: ${fmt(total, k.baseCurrency)} returned to ${refunds.length} friend${refunds.length === 1 ? "" : "s"}`,
+          detail: `PayPal Payouts · batch ${r.batchId} · ${r.status}${r.simulated ? " (simulated)" : ""}`,
+          reasoning: k.closeOut.summary,
+          ref: r.batchId,
+        });
+        for (const x of refunds)
+          notify([x.m.id], { kittyId: k.id, kind: "payout", title: `Refund on its way: ${fmt(x.local, x.m.currency)}`, body: `Your share of what was left in ${k.name}, sent with PayPal Payouts.`, href: `/k/${k.id}` });
         break;
       }
       case "amend_mandate": {

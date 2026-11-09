@@ -34,6 +34,11 @@ export async function POST(req: Request) {
       const found = await findKittyContaining(batchId);
       if (found)
         await mutate(found.id, (k) => {
+          if (k.closeOut?.paypalBatchId === batchId) {
+            k.closeOut.status = String(body.resource?.transaction_status ?? type.split(".").pop());
+            log(k, { actor: "paypal", kind: "payout", title: `Webhook received: refund ${k.closeOut.status}`, ref: batchId });
+            return;
+          }
           const p = k.payouts.find((x) => x.paypalBatchId === batchId);
           if (!p) return;
           p.status = String(body.resource?.transaction_status ?? type.split(".").pop());

@@ -7,6 +7,7 @@ export async function POST(req: Request) {
   try {
     const { kittyId } = (await req.json()) as { kittyId: string };
     const { k, me } = await needKitty(kittyId);
+    if (k.status === "closed") throw new Error("This kitty is closed");
     const owedBase = Math.max(0, me.share - me.paid);
     if (owedBase <= 0) throw new Error("Already paid in full");
     const amount = await convert(owedBase, k.baseCurrency, me.currency);

@@ -97,7 +97,7 @@ export function KittyShell({ id, children }: { id: string; children: React.React
         <button className="lg:hidden" onClick={() => setOpen(false)} aria-label="Close menu"><X size={20} /></button>
       </div>
       <Link href="/app" className="mx-4 rounded-2xl bg-soft p-3 hover:bg-line/60 transition block">
-        <p className="label flex items-center justify-between">Kitty <Chip tone={k.status === "active" ? "ok" : "warn"} className="!py-0.5">{k.status === "active" ? "Active" : "Forming"}</Chip></p>
+        <p className="label flex items-center justify-between">Kitty <Chip tone={k.status === "active" ? "ok" : k.status === "closed" ? "mute" : "warn"} className="!py-0.5">{k.status === "active" ? "Active" : k.status === "closed" ? "Closed" : "Forming"}</Chip></p>
         <p className="font-semibold truncate mt-1">{k.name}</p>
         <p className="text-xs text-mute truncate">{k.destination} · {k.baseCurrency} · {k.members.length}/{k.expectedMembers} friends</p>
       </Link>

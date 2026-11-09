@@ -243,12 +243,45 @@ export async function payout(opts: {
       items: [
         {
           recipient_type: "EMAIL",
-          amount: { value: opts.amount.toFixed(2), currency: opts.currency },
+          amount: { value: money(opts.amount, opts.currency).value, currency: opts.currency },
           receiver: opts.email,
           note: opts.note.slice(0, 4000),
-          sender_item_id: opts.ref,
+          sender_item_id: opts.ref.slice(-30), // keeps the unique tail (proposal id) within PayPal's id length
         },
       ],
+    },
+  });
+  return { batchId: j.batch_header.payout_batch_id, status: j.batch_header.batch_status, simulated: false };
+}
+
+/**
+ * Pay several people in ONE Payouts batch (used for trip close-out refunds). Amounts are in each
+ * recipient's own currency. `ref` is the idempotency key: a retry returns the original batch.
+ */
+export async function payoutBatch(opts: {
+  ref: string;
+  subject: string;
+  items: { email: string; amount: number; currency: Currency; note: string; itemId: string }[];
+}): Promise<{ batchId: string; status: string; simulated: boolean }> {
+  if (!paypalConfigured()) return { batchId: sim("PAYOUT"), status: "SUCCESS", simulated: true };
+  type P = { batch_header: { payout_batch_id: string; batch_status: string } };
+  const batchKey = `kitty-${opts.ref}`.slice(0, 100);
+  const j = await pp<P>("/v1/payments/payouts", {
+    method: "POST",
+    headers: { "PayPal-Request-Id": batchKey },
+    json: {
+      sender_batch_header: {
+        sender_batch_id: batchKey,
+        email_subject: opts.subject.slice(0, 255),
+        email_message: "Your share of the leftover kitty, returned at trip close-out.",
+      },
+      items: opts.items.map((i) => ({
+        recipient_type: "EMAIL",
+        amount: { value: money(i.amount, i.currency).value, currency: i.currency },
+        receiver: i.email,
+        note: i.note.slice(0, 4000),
+        sender_item_id: i.itemId.slice(-30),
+      })),
     },
   });
   return { batchId: j.batch_header.payout_batch_id, status: j.batch_header.batch_status, simulated: false };

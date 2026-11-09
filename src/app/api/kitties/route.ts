@@ -4,6 +4,7 @@ import { makeMember } from "@/lib/groups";
 import { inviteCode, listKittiesForUser, log, putKitty, uid } from "@/lib/store";
 import type { KittyDraft } from "@/lib/ai";
 import type { Kitty } from "@/lib/types";
+import { poolBalance } from "@/lib/policy";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export async function GET() {
         members: k.members.length,
         expectedMembers: k.expectedMembers,
         status: k.status,
-        pool: Math.round((k.members.reduce((s, m) => s + m.paid, 0) - k.spent) * 100) / 100,
+        pool: poolBalance(k),
         pending: k.proposals.filter((p) => p.status === "pending").length,
         needsSign: !k.mandate.signedBy.includes(u.id),
       })),

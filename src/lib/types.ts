@@ -61,6 +61,7 @@ export type ActionType =
   | "split_bill"
   | "record_cash"
   | "amend_mandate"
+  | "close_out"
   | "note";
 
 export interface AgentAction {
@@ -159,11 +160,32 @@ export interface Bill {
   paidBy?: string;
 }
 
+export interface Refund {
+  memberId: string;
+  name: string;
+  base: number; // amount in kitty base currency
+  local: number; // amount actually sent, in the member's own currency
+  currency: Currency;
+}
+
+/** Final report written when the group closes the kitty and the leftover pool is returned. */
+export interface CloseOutReport {
+  closedAt: string;
+  collected: number;
+  spent: number;
+  refunded: number;
+  refunds: Refund[];
+  paypalBatchId?: string;
+  status: string; // PayPal batch status, updated by webhook
+  simulated: boolean;
+  summary: string; // AI-written recap for the group
+}
+
 export interface Kitty {
   id: string;
   createdBy: string;
   inviteCode: string;
-  status: "forming" | "active";
+  status: "forming" | "active" | "closed";
   sharePerMember: number;
   expectedMembers: number;
   name: string;
@@ -179,6 +201,8 @@ export interface Kitty {
   payouts: Payout[];
   bills: Bill[];
   spent: number; // total paid out to vendors, base currency
+  refunded?: number; // leftover pool returned to members at close-out, base currency
+  closeOut?: CloseOutReport;
 }
 
 export interface ModeStatus {
