@@ -24,6 +24,17 @@ export function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+/** A payout to the same payee for the same amount in the last 24 hours: likely a double payment. */
+function recentTwin(k: Kitty, vendorId: string, amount: number) {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  return k.payouts.find((p) => p.vendorId === vendorId && Math.abs(p.amount - amount) < 0.005 && new Date(p.ts).getTime() >= dayAgo);
+}
+
+function hoursAgo(ts: string) {
+  const h = Math.floor((Date.now() - new Date(ts).getTime()) / 3_600_000);
+  return h < 1 ? "less than an hour ago" : `${h} hour${h === 1 ? "" : "s"} ago`;
+}
+
 function decide(checks: PolicyCheck[], okSummary: string): PolicyResult {
   const blocked = checks.filter((c) => !c.pass && c.severity === "block");
   const quorum = checks.filter((c) => !c.pass && c.severity === "quorum");
@@ -93,6 +104,7 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
       const vendorId = String(action.params.vendorId ?? "");
       const vendor = k.vendors.find((v) => v.id === vendorId);
       const balance = poolBalance(k);
+      const twin = recentTwin(k, vendorId, amount);
       const checks: PolicyCheck[] = [
         {
           rule: "Valid amount",
@@ -142,6 +154,12 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
           rule: "Allowed category",
           pass: !!vendor && m.allowedCategories.includes(vendor.category),
           detail: vendor ? `Category: ${vendor.category}` : "Unknown category",
+          severity: "quorum",
+        },
+        {
+          rule: "Not a repeat payment",
+          pass: !twin,
+          detail: twin ? `Same payee and amount was already paid ${hoursAgo(twin.ts)}: the group confirms a repeat` : "No identical payment in the last 24 hours",
           severity: "quorum",
         },
         {

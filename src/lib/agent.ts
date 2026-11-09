@@ -9,6 +9,7 @@ import * as paypal from "./paypal";
 import { convert, fmt } from "./money";
 import { log, notify, uid } from "./store";
 import { personaOf } from "./persona";
+import { looksLikeOverride } from "./guard";
 
 function title(k: Kitty, a: AgentAction): string {
   const p = a.params;
@@ -37,6 +38,12 @@ function title(k: Kitty, a: AgentAction): string {
 export async function runCommand(k: Kitty, text: string, actor: Member) {
   log(k, { actor: "member", actorName: actor.name, kind: "command", title: `“${text}”` });
   const plan = await planCommand(k, text, actor);
+  // Transparency only: the policy engine below is what actually protects the pool.
+  const flagged = looksLikeOverride(text);
+  if (flagged) {
+    log(k, { actor: "policy", kind: "policy", title: "Instruction tried to get around the mandate. The rules still apply", detail: `${actor.name} asked the treasurer to skip the group's rules. Nothing was skipped: every action below was checked as usual.` });
+    plan.reply = `I can't skip the rules the group signed, so I checked this like any other request. ${plan.reply ?? ""}`.trim();
+  }
   if (plan.reply)
     log(k, { actor: "agent", kind: "plan", title: plan.reply, detail: plan.actions.length ? `${plan.actions.length} action(s) proposed` : undefined });
 
@@ -50,7 +57,7 @@ export async function runCommand(k: Kitty, text: string, actor: Member) {
     if (action.type === "add_vendor" && r.vendorId) newVendorId = r.vendorId;
     results.push({ title: title(k, action), decision: r.decision });
   }
-  return { reply: plan.reply, results };
+  return { reply: plan.reply, results, flagged };
 }
 
 export async function proposeAction(k: Kitty, action: AgentAction, actor: Member) {
