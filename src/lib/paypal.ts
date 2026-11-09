@@ -100,6 +100,14 @@ export interface CaptureResult {
   payerEmail?: string;
 }
 
+/** The custom_id Kitty stamped on the order when it was created ("kittyId:memberId"). Undefined for simulated orders. */
+export async function orderCustomId(orderId: string): Promise<string | undefined> {
+  if (!paypalConfigured() || orderId.startsWith("SIM-")) return undefined;
+  type O = { purchase_units?: { custom_id?: string }[] };
+  const j = await pp<O>(`/v2/checkout/orders/${encodeURIComponent(orderId)}`);
+  return j.purchase_units?.[0]?.custom_id;
+}
+
 export async function captureOrder(orderId: string, fallback: { amount: number; currency: Currency }): Promise<CaptureResult> {
   if (!paypalConfigured() || orderId.startsWith("SIM-"))
     return { id: orderId, status: "COMPLETED", captureId: sim("CAP"), ...fallback };
@@ -216,15 +224,19 @@ export async function payout(opts: {
   amount: number;
   currency: Currency;
   note: string;
+  /** Stable idempotency key for this payment (e.g. kitty id + proposal id). Retrying with the same key never pays twice. */
   ref: string;
 }): Promise<{ batchId: string; status: string; simulated: boolean }> {
   if (!paypalConfigured()) return { batchId: sim("PAYOUT"), status: "SUCCESS", simulated: true };
   type P = { batch_header: { payout_batch_id: string; batch_status: string } };
+  const batchKey = `kitty-${opts.ref}`.slice(0, 100); // PayPal-Request-Id allows up to 108 chars
   const j = await pp<P>("/v1/payments/payouts", {
     method: "POST",
+    // PayPal-Request-Id makes the call idempotent: a retry returns the original batch instead of paying again.
+    headers: { "PayPal-Request-Id": batchKey },
     json: {
       sender_batch_header: {
-        sender_batch_id: `kitty-${opts.ref}-${Date.now()}`,
+        sender_batch_id: batchKey,
         email_subject: "You have a payment from a Kitty group",
         email_message: opts.note.slice(0, 1000),
       },

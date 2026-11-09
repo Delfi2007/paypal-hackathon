@@ -129,7 +129,11 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
   return { decision: queuedOnly ? "queued" : "needs_quorum" };
 }
 
-export async function execute(k: Kitty, action: AgentAction) {
+/**
+ * `idemKey` identifies this one intended payment (the proposal id for voted/queued payments).
+ * It is sent to PayPal as the payout's idempotency key, so a retry of the same proposal can never pay twice.
+ */
+export async function execute(k: Kitty, action: AgentAction, idemKey: string = uid("po")) {
   const p = action.params;
   try {
     switch (action.type) {
@@ -141,7 +145,7 @@ export async function execute(k: Kitty, action: AgentAction) {
           amount,
           currency: k.baseCurrency,
           note: String(p.memo || `${k.name} — payment to ${v.name}`),
-          ref: uid("po"),
+          ref: `${k.id}-${idemKey}`,
         });
         k.spent = round2(k.spent + amount);
         k.payouts.unshift({ id: uid("po_"), vendorId: v.id, amount, memo: String(p.memo ?? ""), paypalBatchId: r.batchId, status: r.status, ts: new Date().toISOString() });
@@ -288,7 +292,7 @@ async function tryRun(k: Kitty, pr: Proposal) {
     return;
   }
   try {
-    await execute(k, pr.action);
+    await execute(k, pr.action, pr.id);
     pr.status = "executed";
     pr.awaitingFunds = false;
   } catch {
