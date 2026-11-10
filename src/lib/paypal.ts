@@ -32,7 +32,7 @@ async function accessToken(): Promise<string> {
   return token.value;
 }
 
-async function pp<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+async function pp<T>(path: string, init: RequestInit & { json?: unknown; requestId?: string } = {}): Promise<T> {
   const t = await accessToken();
   const r = await fetch(`${BASE}${path}`, {
     ...init,
@@ -40,6 +40,8 @@ async function pp<T>(path: string, init: RequestInit & { json?: unknown } = {}):
       Authorization: `Bearer ${t}`,
       "Content-Type": "application/json",
       Prefer: "return=representation",
+      // Idempotency: PayPal returns the original response for a repeated key instead of acting twice.
+      ...(init.requestId ? { "PayPal-Request-Id": init.requestId.slice(0, 108) } : {}),
       ...(init.headers || {}),
     },
     body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
@@ -50,15 +52,16 @@ async function pp<T>(path: string, init: RequestInit & { json?: unknown } = {}):
     try {
       const e = JSON.parse(text);
       msg = e.message || e.name || text;
-      if (e.details?.[0]?.description) msg += ` — ${e.details[0].description}`;
+      const d = e.details?.[0];
+      if (d) msg += ` — ${[d.field, d.issue, d.description].filter(Boolean).join(": ")}`;
     } catch {}
     throw new Error(`PayPal ${init.method || "GET"} ${path} → ${r.status}: ${msg}`);
   }
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-const sim = (p: string) => `SIM-${p}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
-const money = (v: number, c: Currency) => ({
+export const sim = (p: string) => `SIM-${p}-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+export const money = (v: number, c: Currency) => ({
   currency_code: c,
   value: c === "JPY" ? Math.round(v).toString() : v.toFixed(2),
 });
@@ -119,7 +122,7 @@ export async function captureOrder(orderId: string, fallback: { amount: number; 
       payments: { captures: { id: string; amount: { value: string; currency_code: Currency }; custom_id?: string }[] };
     }[];
   };
-  const j = await pp<Cap>(`/v2/checkout/orders/${orderId}/capture`, { method: "POST", json: {} });
+  const j = await pp<Cap>(`/v2/checkout/orders/${orderId}/capture`, { method: "POST", json: {}, requestId: `cap-${orderId}` });
   const cap = j.purchase_units?.[0]?.payments?.captures?.[0];
   return {
     id: j.id,
@@ -142,6 +145,7 @@ export async function createAndSendInvoice(opts: {
   itemName: string;
   note: string;
   dueDate: string; // YYYY-MM-DD
+  idemKey?: string;
 }): Promise<{ id: string; url?: string; simulated: boolean; status: string }> {
   if (!paypalConfigured()) return { id: sim("INV"), simulated: true, status: "SENT" };
   const today = new Date().toISOString().slice(0, 10);
@@ -149,6 +153,7 @@ export async function createAndSendInvoice(opts: {
   type Inv = { id: string; status: string; detail?: { metadata?: { recipient_view_url?: string } } };
   const draft = await pp<Inv>("/v2/invoicing/invoices", {
     method: "POST",
+    requestId: opts.idemKey ? `inv-${opts.idemKey}` : undefined,
     json: {
       detail: {
         currency_code: opts.currency,
@@ -175,6 +180,7 @@ export async function createAndSendInvoice(opts: {
   });
   await pp(`/v2/invoicing/invoices/${draft.id}/send`, {
     method: "POST",
+    requestId: `send-${draft.id}`,
     json: { send_to_recipient: true, send_to_invoicer: false },
   });
   const sent = await pp<Inv>(`/v2/invoicing/invoices/${draft.id}`);
@@ -224,26 +230,26 @@ export async function payout(opts: {
   amount: number;
   currency: Currency;
   note: string;
-  /** Stable idempotency key for this payment (e.g. kitty id + proposal id). Retrying with the same key never pays twice. */
   ref: string;
+  /** Stable key for this logical payment: a retry with the same key can never pay twice. */
+  idemKey: string;
 }): Promise<{ batchId: string; status: string; simulated: boolean }> {
   if (!paypalConfigured()) return { batchId: sim("PAYOUT"), status: "SUCCESS", simulated: true };
   type P = { batch_header: { payout_batch_id: string; batch_status: string } };
-  const batchKey = `kitty-${opts.ref}`.slice(0, 100); // PayPal-Request-Id allows up to 108 chars
   const j = await pp<P>("/v1/payments/payouts", {
     method: "POST",
-    // PayPal-Request-Id makes the call idempotent: a retry returns the original batch instead of paying again.
-    headers: { "PayPal-Request-Id": batchKey },
+    requestId: opts.idemKey,
     json: {
       sender_batch_header: {
-        sender_batch_id: batchKey,
+        sender_batch_id: opts.idemKey.slice(0, 30),
         email_subject: "You have a payment from a Kitty group",
         email_message: opts.note.slice(0, 1000),
       },
       items: [
         {
           recipient_type: "EMAIL",
-          amount: { value: opts.amount.toFixed(2), currency: opts.currency },
+          // Payouts v1 spells the field "currency" (Orders/Invoicing use "currency_code").
+          amount: { value: money(opts.amount, opts.currency).value, currency: opts.currency },
           receiver: opts.email,
           note: opts.note.slice(0, 4000),
           sender_item_id: opts.ref,
@@ -252,6 +258,131 @@ export async function payout(opts: {
     },
   });
   return { batchId: j.batch_header.payout_batch_id, status: j.batch_header.batch_status, simulated: false };
+}
+
+// ---------- Payout lifecycle: look up the item, cancel it while unclaimed ----------
+
+export type PayoutItemInfo = { itemId?: string; status: string; batchStatus: string };
+
+/** Reads a payout batch from PayPal: the single item's id and live status. */
+export async function payoutStatus(batchId: string): Promise<PayoutItemInfo> {
+  if (!paypalConfigured() || batchId.startsWith("SIM-")) return { itemId: undefined, status: "SUCCESS", batchStatus: "SUCCESS" };
+  type B = { batch_header: { batch_status: string }; items?: { payout_item_id: string; transaction_status: string }[] };
+  const j = await pp<B>(`/v1/payments/payouts/${batchId}`);
+  const it = j.items?.[0];
+  return { itemId: it?.payout_item_id, status: it?.transaction_status ?? j.batch_header.batch_status, batchStatus: j.batch_header.batch_status };
+}
+
+/** Cancels a payout that the recipient has not claimed yet (PayPal only allows UNCLAIMED items). */
+export async function cancelPayoutItem(itemId: string): Promise<{ status: string; simulated: boolean }> {
+  if (!paypalConfigured() || itemId.startsWith("SIM-")) return { status: "RETURNED", simulated: true };
+  const j = await pp<{ transaction_status?: string }>(`/v1/payments/payouts-item/${itemId}/cancel`, { method: "POST", requestId: `cancel-${itemId}` });
+  return { status: j.transaction_status ?? "RETURNED", simulated: false };
+}
+
+// ---------- Refunds ----------
+
+/** Refunds (part of) a captured PayPal payment back to the payer. Idempotent per `idemKey`. */
+export async function refundCapture(opts: {
+  captureId: string;
+  amount: number;
+  currency: Currency;
+  note: string;
+  idemKey: string;
+}): Promise<{ id: string; status: string; simulated: boolean }> {
+  if (!paypalConfigured() || opts.captureId.startsWith("SIM-")) return { id: sim("REFUND"), status: "COMPLETED", simulated: true };
+  const j = await pp<{ id: string; status: string }>(`/v2/payments/captures/${opts.captureId}/refund`, {
+    method: "POST",
+    requestId: `refund-${opts.idemKey}`,
+    json: { amount: money(opts.amount, opts.currency), note_to_payer: opts.note.slice(0, 255) },
+  });
+  return { id: j.id, status: j.status, simulated: false };
+}
+
+/** Cancels an unpaid invoice (used when a friend drops out before paying). */
+export async function cancelInvoice(id: string, note: string) {
+  if (!paypalConfigured() || id.startsWith("SIM-")) return { simulated: true };
+  await pp(`/v2/invoicing/invoices/${id}/cancel`, { method: "POST", json: { subject: "Invoice cancelled", note: note.slice(0, 1000), send_to_invoicer: false, send_to_recipient: false } });
+  return { simulated: false };
+}
+
+/** Records a refund against an invoice that was paid outside PayPal Checkout (cash / manual). */
+export async function refundInvoice(id: string, amount: number, currency: Currency, idemKey: string) {
+  if (!paypalConfigured() || id.startsWith("SIM-")) return { simulated: true };
+  await pp(`/v2/invoicing/invoices/${id}/refunds`, {
+    method: "POST",
+    requestId: `invrefund-${idemKey}`,
+    json: { method: "CASH", refund_date: new Date().toISOString().slice(0, 10), amount: money(amount, currency) },
+  });
+  return { simulated: false };
+}
+
+// ---------- Holds: authorize now, capture or void later (Orders v2 intent=AUTHORIZE) ----------
+
+export async function createHoldOrder(opts: {
+  amount: number;
+  currency: Currency;
+  kittyId: string;
+  memberId: string;
+  description: string;
+  returnUrl: string;
+  cancelUrl: string;
+}): Promise<{ id: string; approveUrl?: string; simulated: boolean }> {
+  if (!paypalConfigured()) return { id: sim("HOLD"), simulated: true };
+  type O = { id: string; links?: { rel: string; href: string }[] };
+  const j = await pp<O>("/v2/checkout/orders", {
+    method: "POST",
+    json: {
+      intent: "AUTHORIZE",
+      purchase_units: [
+        {
+          reference_id: opts.memberId,
+          custom_id: `${opts.kittyId}:${opts.memberId}`,
+          description: opts.description.slice(0, 127),
+          amount: money(opts.amount, opts.currency),
+        },
+      ],
+      payment_source: {
+        paypal: {
+          experience_context: { return_url: opts.returnUrl, cancel_url: opts.cancelUrl, user_action: "PAY_NOW", shipping_preference: "NO_SHIPPING" },
+        },
+      },
+    },
+  });
+  const link = j.links?.find((l) => l.rel === "payer-action" || l.rel === "approve");
+  return { id: j.id, approveUrl: link?.href, simulated: false };
+}
+
+export async function authorizeOrder(orderId: string): Promise<{ authorizationId: string; status: string; simulated: boolean }> {
+  if (!paypalConfigured() || orderId.startsWith("SIM-")) return { authorizationId: sim("AUTH"), status: "CREATED", simulated: true };
+  type A = { purchase_units: { payments: { authorizations: { id: string; status: string }[] } }[] };
+  const j = await pp<A>(`/v2/checkout/orders/${orderId}/authorize`, { method: "POST", json: {}, requestId: `auth-${orderId}` });
+  const a = j.purchase_units?.[0]?.payments?.authorizations?.[0];
+  if (!a) throw new Error("PayPal did not return an authorization");
+  return { authorizationId: a.id, status: a.status, simulated: false };
+}
+
+export async function captureAuthorization(authId: string, amount: number, currency: Currency): Promise<{ captureId: string; status: string; simulated: boolean }> {
+  if (!paypalConfigured() || authId.startsWith("SIM-")) return { captureId: sim("CAP"), status: "COMPLETED", simulated: true };
+  const j = await pp<{ id: string; status: string }>(`/v2/payments/authorizations/${authId}/capture`, {
+    method: "POST",
+    requestId: `acap-${authId}`,
+    json: { amount: money(amount, currency), final_capture: true },
+  });
+  return { captureId: j.id, status: j.status, simulated: false };
+}
+
+export async function voidAuthorization(authId: string): Promise<{ simulated: boolean }> {
+  if (!paypalConfigured() || authId.startsWith("SIM-")) return { simulated: true };
+  await pp(`/v2/payments/authorizations/${authId}/void`, { method: "POST", requestId: `void-${authId}` });
+  return { simulated: false };
+}
+
+/** Renews an authorization after its 3-day honor period so the hold stays valid. */
+export async function reauthorize(authId: string, amount: number, currency: Currency): Promise<{ simulated: boolean }> {
+  if (!paypalConfigured() || authId.startsWith("SIM-")) return { simulated: true };
+  await pp(`/v2/payments/authorizations/${authId}/reauthorize`, { method: "POST", requestId: `reauth-${authId}-${Date.now().toString(36).slice(0, 6)}`, json: { amount: money(amount, currency) } });
+  return { simulated: false };
 }
 
 // ---------- Webhooks ----------
@@ -276,4 +407,13 @@ export async function verifyWebhook(headers: Headers, body: unknown): Promise<bo
   } catch {
     return false;
   }
+}
+export const paypalAccessToken = () => accessToken();
+
+/** Current status of a payout batch (PENDING, SUCCESS, DENIED...). */
+export async function payoutBatchStatus(batchId: string): Promise<{ status: string; items: { status: string; receiver?: string; amount?: string }[] }> {
+  if (!paypalConfigured() || batchId.startsWith("SIM-")) return { status: "SUCCESS", items: [] };
+  type B = { batch_header: { batch_status: string }; items?: { transaction_status?: string; payout_item?: { receiver?: string; amount?: { value?: string } } }[] };
+  const j = await pp<B>(`/v1/payments/payouts/${batchId}`);
+  return { status: j.batch_header.batch_status, items: (j.items ?? []).map((i) => ({ status: i.transaction_status ?? "", receiver: i.payout_item?.receiver, amount: i.payout_item?.amount?.value })) };
 }

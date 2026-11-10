@@ -152,3 +152,15 @@ body {
   .rise, .pop, .floaty, .skeleton, .glow-ok, .stack-in, .marquee, .checkdraw { animation: none !important; }
   .checkdraw { stroke-dashoffset: 0; }
 }
+
+/* ---- Payment-card hold visual (flip + glow), inspired by the payment-method animation reference ---- */
+.hold-scene { perspective: 1200px; }
+.hold-card { position: relative; aspect-ratio: 1.586 / 1; width: 100%; max-width: 340px; margin: 0 auto; transform-style: preserve-3d; transition: transform 0.9s cubic-bezier(.2,.8,.2,1); }
+.hold-card.flipped { transform: rotateY(180deg); }
+.hold-face { position: absolute; inset: 0; border-radius: 1.4rem; backface-visibility: hidden; -webkit-backface-visibility: hidden; padding: 1.25rem; color: white; overflow: hidden; background: linear-gradient(135deg, #2f5bff 0%, #7b5cff 55%, #3cf0c6 130%); box-shadow: 0 30px 60px -28px rgba(47, 91, 255, 0.75); }
+.hold-face::after { content: ""; position: absolute; inset: 0; background: radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,.35), transparent 55%); pointer-events: none; }
+.hold-back { transform: rotateY(180deg); background: linear-gradient(135deg, #16c75a 0%, #3cf0c6 100%); display: grid; place-items: center; text-align: center; }
+.hold-glow { animation: glow-ok 1.4s ease forwards; }
+.swipe-track { position: relative; height: 3.4rem; border-radius: 999px; background: var(--color-soft); overflow: hidden; user-select: none; touch-action: none; }
+.swipe-knob { position: absolute; top: 0.3rem; left: 0.3rem; height: 2.8rem; width: 2.8rem; border-radius: 999px; background: var(--color-ink); color: white; display: grid; place-items: center; cursor: grab; }
+@media (prefers-reduced-motion: reduce) { .hold-card { transition: none; } .hold-glow { animation: none; } }

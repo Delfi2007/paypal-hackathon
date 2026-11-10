@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import {
-  Bot, Check, CircleDollarSign, Copy, Gavel, History, LayoutDashboard, Loader2, Mail, Menu, PenLine, ReceiptText, SendHorizontal, Share2, Sparkles, UserPlus, Wallet, X,
+  Bot, Check, CircleDollarSign, Compass, Copy, Gavel, History, LayoutDashboard, Loader2, Lock, Mail, Menu, PenLine, ReceiptText, SendHorizontal, Share2, ShieldCheck, Sparkles, Undo2, UserPlus, Wallet, X,
 } from "lucide-react";
 import type { AppUser, Kitty, Member, ModeStatus } from "@/lib/types";
 import { Avatar, Chip, Logo, api } from "./kit";
@@ -35,6 +35,10 @@ const NAV = [
   { href: "activity", label: "Activity", icon: History, features: "02 · 04" },
   { href: "scoreboard", label: "Scoreboard", icon: LayoutDashboard, features: "12" },
   { href: "split", label: "Split bill", icon: ReceiptText, features: "06" },
+  { href: "holds", label: "Holds", icon: Lock, features: "13" },
+  { href: "refunds", label: "Refunds", icon: Undo2, features: "14" },
+  { href: "trust", label: "Trust", icon: ShieldCheck, features: "15 · 16" },
+  { href: "discover", label: "Discover", icon: Compass, features: "17" },
 ];
 
 type Payload = { kitty: Kitty; mode: ModeStatus; me: string; user: AppUser; chain: Chain };

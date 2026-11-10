@@ -1,6 +1,7 @@
 import { fail, needKitty, ok } from "@/lib/api";
 import { log, mutate, uid } from "@/lib/store";
 import { parseBill } from "@/lib/ai";
+import * as guard from "@/lib/guard";
 import { convert, fmt } from "@/lib/money";
 import { round2 } from "@/lib/policy";
 import type { Bill, Currency } from "@/lib/types";
@@ -22,6 +23,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     const out = await mutate(id, async (k) => {
       const parsed = await parseBill(k, image, hint);
+      // Receipt text is untrusted (it comes from a photo): strip anything that talks to the agent.
+      for (const it of parsed.items) {
+        const v = guard.scan(String(it.name));
+        if (v.blocked) {
+          log(k, { actor: "policy", kind: "policy", title: "Guard removed a receipt line that tried to instruct the agent", detail: guard.reason(v) });
+          it.name = "[removed by guard]";
+        } else it.name = guard.sanitize(String(it.name), 80);
+      }
+      if (guard.scan(String(parsed.merchant ?? "")).blocked) parsed.merchant = "Restaurant";
       const cur = (CURRENCIES.includes(parsed.currency) ? parsed.currency : k.baseCurrency) as Currency;
       const memberIds = k.members.map((m) => m.id);
 

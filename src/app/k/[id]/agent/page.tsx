@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Bot, Check, Clock, Loader2, Send, Sparkles, Vote, X } from "lucide-react";
+import { ArrowUp, Bot, Check, Clock, Loader2, Mic, MicOff, Send, Sparkles, Vote, Volume2, VolumeX, X } from "lucide-react";
+import { LANGS, useVoice } from "@/components/voice";
 import { useKitty } from "@/components/KittyShell";
 import { Avatar, Chip, FeatureTag, api, timeAgo } from "@/components/kit";
 import { fmt } from "@/lib/money";
@@ -41,6 +42,8 @@ export default function AgentPage() {
 
   useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [msgs]);
 
+  const voice = useVoice((said) => { void send(said); });
+
   async function send(t = text) {
     if (!t.trim() || busy) return;
     setBusy(true);
@@ -49,6 +52,7 @@ export default function AgentPage() {
     try {
       const r = await api<{ reply: string; results: { title: string; decision: string }[] }>(`/api/kitties/${k.id}/command`, { text: t, actorId: actor.id });
       setMsgs((m) => [...m.filter((x) => x.role !== "thinking"), { role: "agent", text: r.reply, results: r.results }]);
+      voice.speak(`${r.reply} ${r.results.map((x) => `${x.title}: ${x.decision === "allow" ? "done" : x.decision === "needs_quorum" ? "needs a vote" : x.decision === "queued" ? "queued until funded" : "blocked"}.`).join(" ")}`);
       reload();
     } catch (e) {
       setMsgs((m) => [...m.filter((x) => x.role !== "thinking"), { role: "agent", text: (e as Error).message, results: [] }]);
@@ -111,9 +115,29 @@ export default function AgentPage() {
           </div>
 
           <form onSubmit={(e) => { e.preventDefault(); send(); }} className="p-4 sm:p-5 border-t border-line flex items-center gap-2">
-            <input value={text} onChange={(e) => setText(e.target.value)} placeholder={`Message as ${actor.name}, e.g. “pay the taxi 120 and nudge Kenji”`} className="input !rounded-full !py-3.5" />
+            <input value={voice.listening ? voice.interim : text} onChange={(e) => setText(e.target.value)} readOnly={voice.listening} placeholder={voice.listening ? "Listening… speak now" : `Message as ${actor.name}, e.g. “pay the taxi 120 and nudge Kenji”`} className="input !rounded-full !py-3.5" />
+            {voice.supported && (
+              <button type="button" onClick={voice.listening ? voice.stop : voice.start} disabled={busy}
+                className={`relative btn !p-3.5 ${voice.listening ? "bg-bad text-white" : "btn-ghost"}`} aria-label={voice.listening ? "Stop listening" : "Talk to your treasurer"} title="Talk to your treasurer">
+                {voice.listening && <span className="absolute inset-0 rounded-full bg-bad/40 animate-ping" />}
+                {voice.listening ? <MicOff size={18} className="relative" /> : <Mic size={18} />}
+              </button>
+            )}
             <button disabled={busy || !text.trim()} className="btn btn-blue !p-3.5" aria-label="Send"><ArrowUp size={18} /></button>
           </form>
+          {(voice.error || voice.supported) && (
+            <div className="px-5 pb-3 -mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-mute">
+              {voice.error && <span className="text-bad">{voice.error}</span>}
+              {voice.supported && (
+                <>
+                  <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={voice.speakReplies} onChange={(e) => voice.setSpeak(e.target.checked)} /> {voice.speakReplies ? <Volume2 size={13} /> : <VolumeX size={13} />} Read replies aloud</label>
+                  <label className="flex items-center gap-1.5">Language
+                    <select value={voice.lang} onChange={(e) => voice.setLang(e.target.value)} className="bg-transparent border border-line rounded-md px-1 py-0.5">{LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}</select>
+                  </label>
+                </>
+              )}
+            </div>
+          )}
           {msgs.length > 0 && (
             <div className="px-5 pb-4 -mt-2 flex gap-2 overflow-x-auto">
               {chips.slice(0, 4).map((c) => <button key={c} onClick={() => send(c)} disabled={busy} className="shrink-0 rounded-full bg-soft px-3 py-1.5 text-xs hover:bg-line">{c}</button>)}

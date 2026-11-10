@@ -111,8 +111,48 @@ export default function ActivityPage() {
               ))}
             </ul>
           </div>
+          <Reconcile kittyId={k.id} onDone={reload} />
         </aside>
       </div>
+    </div>
+  );
+}
+
+type RecRow = { kind: string; label: string; id: string; ours: string; paypal: string; ok: boolean; note?: string };
+type RecResult = { simulated: boolean; message?: string; via?: string; rows: RecRow[]; disputes: { id: string; status: string; reason?: string; amount?: string }[] };
+
+function Reconcile({ kittyId, onDone }: { kittyId: string; onDone: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<RecResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  async function run() {
+    setBusy(true); setErr(null);
+    try { setRes(await api<RecResult>(`/api/kitties/${kittyId}/reconcile`, {})); await onDone(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  }
+  const bad = res?.rows.filter((r) => !r.ok).length ?? 0;
+  return (
+    <div className="panel p-6">
+      <p className="label flex items-center gap-1.5"><ShieldCheck size={13} /> PayPal Agent Toolkit</p>
+      <h3 className="font-semibold mt-1">Does PayPal agree with our books?</h3>
+      <p className="text-sm text-ink-2 mt-1">Reads every invoice, checkout and payout straight from PayPal (read-only) and compares it with what Kitty recorded. Disputes included.</p>
+      <button onClick={run} disabled={busy} className="btn btn-dark w-full mt-4 text-sm">{busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Reconcile with PayPal</button>
+      {err && <p className="text-bad text-xs mt-2">{err}</p>}
+      {res?.simulated && <p className="text-xs text-mute mt-3">{res.message}</p>}
+      {res && !res.simulated && (
+        <div className="mt-4 pop">
+          <Chip tone={bad ? "warn" : "ok"}>{bad ? `${bad} mismatch${bad > 1 ? "es" : ""}` : `All ${res.rows.length} records match`}</Chip>
+          <ul className="mt-3 divide-y divide-line text-sm">
+            {res.rows.map((r) => (
+              <li key={r.id + r.kind} className="py-2">
+                <div className="flex items-center justify-between gap-2"><span className="font-medium truncate">{r.label}</span><Chip tone={r.ok ? "ok" : "bad"}>{r.ok ? "match" : "differs"}</Chip></div>
+                <p className="text-xs text-mute">we say <b>{r.ours}</b> · PayPal says <b>{r.paypal}</b></p>
+                {r.note && <p className="text-xs text-ink-2">{r.note}</p>}
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-mute mt-2">Disputes open on PayPal: <b>{res.disputes.length}</b>{res.disputes.map((d) => ` · ${d.id} ${d.status}`).join("")}</p>
+        </div>
+      )}
     </div>
   );
 }

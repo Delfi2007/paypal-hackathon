@@ -8,6 +8,13 @@ import * as paypal from "./paypal";
 import { convert, fmt } from "./money";
 import { log, notify, uid } from "./store";
 import { personaOf } from "./persona";
+import { rebalancePreview } from "./rebalance";
+import crypto from "node:crypto";
+import * as guard from "./guard";
+
+const short = (...parts: (string | number)[]) => crypto.createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 24);
+/** Stable key for one logical money movement; the 2-minute bucket also absorbs accidental double submits. */
+const bucket = () => Math.floor(Date.now() / 120_000);
 
 function title(k: Kitty, a: AgentAction): string {
   const p = a.params;
@@ -15,6 +22,19 @@ function title(k: Kitty, a: AgentAction): string {
     case "pay_vendor": {
       const v = k.vendors.find((x) => x.id === p.vendorId);
       return `Pay ${v?.name ?? "vendor"} ${fmt(Number(p.amount), k.baseCurrency)}`;
+    }
+    case "refund_member": {
+      const m = k.members.find((x) => x.id === p.memberId);
+      return `Refund ${m?.name ?? "member"} ${fmt(Number(p.amount), k.baseCurrency)}`;
+    }
+    case "drop_member": {
+      const m = k.members.find((x) => x.id === p.memberId);
+      return `${m?.name ?? "A friend"} leaves; re-split the shares`;
+    }
+    case "void_payout": {
+      const po = k.payouts.find((x) => x.id === p.payoutId);
+      const v = k.vendors.find((x) => x.id === po?.vendorId);
+      return `Void payout to ${v?.name ?? "vendor"} ${fmt(po?.amount ?? 0, k.baseCurrency)}`;
     }
     case "add_vendor":
       return `Add payee ${p.name}`;
@@ -33,7 +53,19 @@ function title(k: Kitty, a: AgentAction): string {
 
 export async function runCommand(k: Kitty, text: string, actor: Member) {
   log(k, { actor: "member", actorName: actor.name, kind: "command", title: `“${text}”` });
+  const screened = guard.scan(text, "command");
+  if (screened.blocked) {
+    log(k, { actor: "policy", kind: "policy", title: "Guard stopped this instruction before the agent read it", detail: guard.reason(screened) });
+    return { reply: "I can't act on that: it looks like an attempt to override my rules. Nothing was done.", results: [] };
+  }
   const plan = await planCommand(k, text, actor);
+  // Screen what the model proposes too: free-text fields of an action must not carry an attack.
+  plan.actions = plan.actions.filter((a) => {
+    const hit = guard.scanFields({ name: a.params.name, email: a.params.email, memo: a.params.memo, category: a.params.category });
+    if (!hit) return true;
+    log(k, { actor: "policy", kind: "policy", title: `Guard dropped a proposed action (${hit.field})`, detail: guard.reason(hit.verdict) });
+    return false;
+  });
   if (plan.reply)
     log(k, { actor: "agent", kind: "plan", title: plan.reply, detail: plan.actions.length ? `${plan.actions.length} action(s) proposed` : undefined });
 
@@ -64,6 +96,11 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
   // happens through the mandate.
   if (action.type === "add_vendor") {
     const policy = evaluate(k, action);
+    if (policy.decision === "block") {
+      // Quarantine: the vendor is not created at all, and the group sees why.
+      log(k, { actor: "policy", kind: "policy", title: `Guard quarantined payee “${guard.sanitize(String(action.params.name ?? ""), 40)}”`, detail: policy.summary, policy, reasoning: action.reasoning });
+      return { decision: "block" };
+    }
     const v = {
       id: uid("v_"),
       name: String(action.params.name ?? "New vendor"),
@@ -84,7 +121,7 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
   if (policy.decision === "allow") {
     log(k, { actor: "policy", kind: "policy", title: `Approved by policy — ${title(k, action)}`, policy, reasoning: action.reasoning });
     try {
-      await execute(k, action);
+      await execute(k, action, { idem: action.type === "pay_vendor" ? `po${short(k.id, String(action.params.vendorId), Number(action.params.amount), String(action.params.memo ?? ""), bucket())}` : undefined });
     } catch (e) {
       return { decision: "failed", error: (e as Error).message };
     }
@@ -129,26 +166,29 @@ async function handle(k: Kitty, action: AgentAction, actor: Member) {
   return { decision: queuedOnly ? "queued" : "needs_quorum" };
 }
 
-/**
- * `idemKey` identifies this one intended payment (the proposal id for voted/queued payments).
- * It is sent to PayPal as the payout's idempotency key, so a retry of the same proposal can never pay twice.
- */
-export async function execute(k: Kitty, action: AgentAction, idemKey: string = uid("po")) {
+export async function execute(k: Kitty, action: AgentAction, ctx: { idem?: string } = {}) {
   const p = action.params;
   try {
     switch (action.type) {
       case "pay_vendor": {
         const v = k.vendors.find((x) => x.id === p.vendorId)!;
         const amount = round2(Number(p.amount));
+        const idemKey = ctx.idem ?? `po${short(k.id, v.id, amount, String(p.memo ?? ""), bucket())}`;
+        if (k.idem?.includes(idemKey) || k.payouts.some((x) => x.idemKey === idemKey)) {
+          log(k, { actor: "system", kind: "info", title: `Duplicate payment ignored — ${v.name} ${fmt(amount, k.baseCurrency)}`, detail: "The same payment was already sent; PayPal was not called again." });
+          break;
+        }
         const r = await paypal.payout({
           email: v.email,
           amount,
           currency: k.baseCurrency,
           note: String(p.memo || `${k.name} — payment to ${v.name}`),
-          ref: `${k.id}-${idemKey}`,
+          ref: uid("po"),
+          idemKey,
         });
+        k.idem = [idemKey, ...(k.idem ?? [])].slice(0, 300);
         k.spent = round2(k.spent + amount);
-        k.payouts.unshift({ id: uid("po_"), vendorId: v.id, amount, memo: String(p.memo ?? ""), paypalBatchId: r.batchId, status: r.status, ts: new Date().toISOString() });
+        k.payouts.unshift({ id: uid("po_"), vendorId: v.id, amount, memo: String(p.memo ?? ""), paypalBatchId: r.batchId, status: r.status, ts: new Date().toISOString(), idemKey });
         log(k, {
           actor: "paypal",
           kind: "payout",
@@ -176,6 +216,7 @@ export async function execute(k: Kitty, action: AgentAction, idemKey: string = u
             itemName: `${k.name} — your share`,
             note: `Your share of the ${k.destination} kitty, managed by Kitty. Due ${k.mandate.deadline}.`,
             dueDate: k.mandate.deadline,
+            idemKey: short(k.id, m.id, "invoice"),
           });
           m.invoiceId = inv.id;
           log(k, {
@@ -230,6 +271,111 @@ export async function execute(k: Kitty, action: AgentAction, idemKey: string = u
         }
         await recordContribution(k, m, { amount: local, currency: m.currency }, m.invoiceId ?? "cash");
         log(k, { actor: "member", actorName: String(p.byName ?? "Organiser"), kind: "payment", title: `${m.name}'s share recorded as paid in cash`, detail: m.invoiceId ? `Recorded on PayPal invoice ${m.invoiceId}` : "No invoice yet, recorded in the kitty only" });
+        break;
+      }
+      case "refund_member": {
+        const m = k.members.find((x) => x.id === p.memberId);
+        if (!m) throw new Error("Unknown member");
+        const amount = round2(Number(p.amount));
+        if (!(amount > 0)) throw new Error("Refund amount must be positive");
+        if (amount > m.paid + 0.001) throw new Error(`${m.name} has only paid ${fmt(m.paid, k.baseCurrency)}`);
+        const idemKey = ctx.idem ?? `rf${short(k.id, m.id, amount, bucket())}`;
+        if (k.idem?.includes(idemKey)) {
+          log(k, { actor: "system", kind: "info", title: `Duplicate refund ignored — ${m.name} ${fmt(amount, k.baseCurrency)}` });
+          break;
+        }
+        const local = Math.min(round2(await convert(amount, k.baseCurrency, m.currency)), m.paidLocal?.amount ?? Infinity);
+        let detail: string;
+        let ref: string | undefined;
+        if (m.captureId) {
+          const r = await paypal.refundCapture({ captureId: m.captureId, amount: local, currency: m.currency, note: `Refund from ${k.name}`, idemKey });
+          ref = r.id;
+          detail = `PayPal refund ${r.id} · ${r.status}${r.simulated ? " (simulated)" : ""} · ${fmt(local, m.currency)}`;
+        } else if (m.invoiceId) {
+          const r = await paypal.refundInvoice(m.invoiceId, local, m.currency, idemKey);
+          ref = m.invoiceId;
+          detail = `Refund recorded on PayPal invoice ${m.invoiceId}${r.simulated ? " (simulated)" : ""}`;
+        } else {
+          detail = "Recorded in the kitty (no PayPal payment to reverse)";
+        }
+        k.idem = [idemKey, ...(k.idem ?? [])].slice(0, 300);
+        m.paid = round2(m.paid - amount);
+        if (m.paid < m.share) m.paidAt = undefined;
+        if (m.paid <= 0) m.captureId = undefined;
+        m.persona = personaOf(m, k.mandate.deadline);
+        // Logged as money leaving the pool (kind "payout") so every view shows it as an outflow.
+        log(k, { actor: "paypal", kind: "payout", title: `Refunded ${m.name} ${fmt(amount, k.baseCurrency)}`, detail, amount, ref });
+        notify([m.id], { kittyId: k.id, kind: "payment", title: `Refund: ${fmt(amount, k.baseCurrency)} from ${k.name}`, body: "The group approved a refund to you.", href: `/k/${k.id}` });
+        break;
+      }
+      case "void_payout": {
+        const po = k.payouts.find((x) => x.id === p.payoutId);
+        if (!po) throw new Error("Unknown payout");
+        const v = k.vendors.find((x) => x.id === po.vendorId);
+        if (/^(RETURNED|CANCELED|REFUNDED|REVERSED)$/i.test(po.status)) throw new Error("This payout was already voided");
+        if (po.paypalBatchId) {
+          const info = await paypal.payoutStatus(po.paypalBatchId);
+          po.status = info.status;
+          po.itemId = po.itemId ?? info.itemId;
+        }
+        if (/^SUCCESS$/i.test(po.status)) throw new Error(`${v?.name ?? "The vendor"} already received this payout. Ask them for a refund instead.`);
+        const c = await paypal.cancelPayoutItem(po.itemId ?? `SIM-${po.id}`);
+        po.status = c.status;
+        k.spent = round2(Math.max(0, k.spent - po.amount));
+        log(k, { actor: "paypal", kind: "info", title: `Voided payout to ${v?.name ?? "vendor"} ${fmt(po.amount, k.baseCurrency)}`, detail: `Returned to the pool · PayPal ${c.status}${c.simulated ? " (simulated)" : ""}`, amount: po.amount, ref: po.paypalBatchId });
+        break;
+      }
+      case "drop_member": {
+        // A friend leaves. The group already approved these exact numbers (see rebalancePreview).
+        const pv = rebalancePreview(k, String(p.memberId));
+        if (!pv.ok) throw new Error(pv.reason ?? "Cannot remove this member");
+        const leaver = k.members.find((x) => x.id === pv.leaverId)!;
+
+        // 1. give back what they paid (reuses the refund path: PayPal refund, idempotency, ledger)
+        if (pv.refund > 0) await execute(k, { type: "refund_member", params: { memberId: leaver.id, amount: pv.refund }, reasoning: `${leaver.name} dropped out` }, { idem: ctx.idem ? `${ctx.idem}-refund` : undefined });
+        // 2. release any open PayPal authorization hold, and cancel an unpaid invoice
+        const { holdsOf, voidHold } = await import("./holds");
+        for (const h of holdsOf(k).filter((x) => x.memberId === leaver.id && (x.status === "created" || x.status === "authorized"))) {
+          try { await voidHold(k, h.id, "scheduler", `${leaver.name} dropped out`); } catch { /* already lapsed */ }
+        }
+        if (leaver.invoiceId && leaver.paid <= 0) {
+          try { await paypal.cancelInvoice(leaver.invoiceId, `${leaver.name} left ${k.name}`); } catch { /* already paid or cancelled */ }
+        }
+        // 3. remove them and re-split the same budget between the friends who remain
+        k.departed = [{ id: leaver.id, name: leaver.name, at: new Date().toISOString(), refunded: pv.refund }, ...(k.departed ?? [])];
+        k.members = k.members.filter((x) => x.id !== leaver.id);
+        k.expectedMembers = k.members.length;
+        k.sharePerMember = pv.newShare;
+        k.mandate.quorum = Math.max(1, Math.min(k.mandate.quorum, k.members.length));
+        k.mandate.signedBy = k.mandate.signedBy.filter((id) => id !== leaver.id);
+        k.mandate.signatures = (k.mandate.signatures ?? []).filter((s) => s.memberId !== leaver.id);
+        for (const pr of k.proposals) {
+          pr.approvals = pr.approvals.filter((id) => id !== leaver.id);
+          pr.rejections = pr.rejections.filter((id) => id !== leaver.id);
+        }
+        const needTopUp: string[] = [];
+        for (const m of k.members) {
+          m.share = pv.newShare;
+          if (m.paid >= m.share) m.paidAt ??= new Date().toISOString();
+          else {
+            m.paidAt = undefined;
+            if (m.paid > 0) { m.invoiceId = undefined; needTopUp.push(m.name); } // a fresh invoice for the difference only
+          }
+          m.persona = personaOf(m, k.mandate.deadline);
+        }
+        if (k.status === "active" && k.mandate.signedBy.length < k.mandate.quorum) k.status = "forming";
+        log(k, {
+          actor: "system",
+          kind: "info",
+          title: `${leaver.name} left the kitty. Shares re-split: ${fmt(pv.oldShare, k.baseCurrency)} → ${fmt(pv.newShare, k.baseCurrency)} each`,
+          detail: `Refunded ${fmt(pv.refund, k.baseCurrency)} · ${pv.remaining} friends remain · ${fmt(pv.totalTopUp, k.baseCurrency)} of top-ups, ${needTopUp.length ? needTopUp.join(", ") + " pay only the difference" : "no one has paid yet"}`,
+        });
+        notify(k.members.map((x) => x.id), { kittyId: k.id, kind: "info", title: `${leaver.name} left ${k.name}`, body: `Your share is now ${fmt(pv.newShare, k.baseCurrency)}.`, href: `/k/${k.id}` });
+        notify([leaver.id], { kittyId: k.id, kind: "payment", title: `You left ${k.name}`, body: pv.refund > 0 ? `${fmt(pv.refund, k.baseCurrency)} is being refunded to you.` : "Nothing was owed.", href: "/app" });
+        // 4. invoice the difference to anyone who must top up
+        if (k.members.some((m) => m.paid < m.share && !m.invoiceId)) {
+          try { await execute(k, { type: "request_contributions", params: {}, reasoning: "Top-ups after a friend dropped out" }); } catch { /* shown in the ledger by that step */ }
+        }
         break;
       }
       case "amend_mandate": {
@@ -292,7 +438,7 @@ async function tryRun(k: Kitty, pr: Proposal) {
     return;
   }
   try {
-    await execute(k, pr.action, pr.id);
+    await execute(k, pr.action, { idem: `pr${short(pr.id)}` });
     pr.status = "executed";
     pr.awaitingFunds = false;
   } catch {
@@ -327,7 +473,11 @@ export async function recordContribution(
     amount: base,
     ref,
   });
-  // Release queued payouts in order.
+  await releaseQueued(k);
+}
+
+/** Pay out queued proposals, oldest first, as far as the pool now allows. */
+export async function releaseQueued(k: Kitty) {
   for (const pr of [...k.proposals].reverse()) {
     if (pr.status === "pending" && pr.awaitingFunds && (pr.preApproved || pr.approvals.length >= k.mandate.quorum)) {
       const before = poolBalance(k);
