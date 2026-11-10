@@ -40,7 +40,7 @@ export default function ApprovalsPage() {
             <div className="panel p-10 text-center rise">
               <ShieldCheck className="mx-auto text-ok" size={32} />
               <p className="display text-2xl mt-3">All clear</p>
-              <p className="text-ink-2 mt-1">Nothing needs a vote. Try paying the hotel €1,800, which is over the cap.</p>
+              <p className="text-ink-2 mt-1">Nothing needs a vote. Any payment over the {fmt(k.mandate.perPaymentCap, k.baseCurrency)} cap will open a vote here.</p>
               <Link href={`/k/${k.id}/send`} className="btn btn-blue mt-5">Open the keypad</Link>
             </div>
           )}
