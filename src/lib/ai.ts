@@ -2,7 +2,7 @@
 // deterministic rule-based fallback otherwise, so the demo never hard-fails.
 // The model only ever *proposes* actions — the policy engine decides.
 
-import type { AgentAction, Kitty, Member, Currency, VendorCategory } from "./types";
+import type { AgentAction, Kitty, Member, Currency, VendorCategory , CloseOutReport } from "./types";
 import { fmt } from "./money";
 import { poolBalance } from "./policy";
 import { forPrompt } from "./guard";
@@ -101,6 +101,7 @@ Available action types and params:
 - "void_payout": { "payoutId": string }  (stop a payout the vendor has not claimed yet; only for ids listed under payouts)
 - "drop_member": { "memberId": string }  (a friend drops out: they are refunded, the same budget is re-split between the rest, and friends who already paid owe only the difference)
 - "amend_mandate": { "totalBudget"?: number, "perPaymentCap"?: number, "quorum"?: number, "deadline"?: "YYYY-MM-DD", "approvePayees"?: string[] }
+- "close_out": {}  (the trip is over: return whatever is left in the pool to each member, in proportion to what they paid; always needs a group vote)
 - "note": { "text": string }  (answer a question, no money moves)
 
 Every action needs a one-sentence "reasoning" written for the group (why this, why this amount).
@@ -171,6 +172,11 @@ function rulePlan(k: Kitty, text: string): Plan {
         actions: [{ type: "pay_vendor", params: { vendorId: v.id, amount: amt, memo: text.slice(0, 120) }, reasoning: `You asked to pay ${v.name} ${fmt(amt, k.baseCurrency)}; the pool has ${fmt(poolBalance(k), k.baseCurrency)}.` }],
       };
   }
+  if (/(close out|close the|wrap up|end the trip|trip is over|settle up|refund|return the (money|pool|rest))/.test(t))
+    return {
+      reply: "Closing out means returning what's left to everyone, so I've opened a vote.",
+      actions: [{ type: "close_out", params: {}, reasoning: `The trip is over; ${fmt(poolBalance(k), k.baseCurrency)} is left in the pool and goes back to members in proportion to what each paid.` }],
+    };
   if (/(remind|nudge|chase|ping)/.test(t))
     return {
       reply: owing.length ? `Nudging ${owing.map((m) => m.name).join(" and ")}.` : "Everyone has paid — nobody to nudge!",
@@ -345,4 +351,41 @@ Return JSON matching: {"name","destination","tagline","baseCurrency","totalBudge
     members,
     vendors: vendors.length ? vendors : [{ name: "Accommodation", category: "stay", approved: true }],
   };
+}
+
+
+// ------------------------------------------------------------- trip close-out report
+
+/** A short, warm recap for the group. Numbers come from the ledger; the model only words them. */
+export async function summarizeTrip(k: Kitty, r: Omit<CloseOutReport, "summary">): Promise<string> {
+  const spentOn = k.payouts.reduce<Record<string, number>>((acc, p) => {
+    const name = k.vendors.find((v) => v.id === p.vendorId)?.name ?? "Other";
+    acc[name] = Math.round(((acc[name] ?? 0) + p.amount) * 100) / 100;
+    return acc;
+  }, {});
+  const facts = {
+    trip: k.name,
+    destination: k.destination,
+    currency: k.baseCurrency,
+    collected: r.collected,
+    spent: r.spent,
+    spentOn,
+    refunded: r.refunded,
+    refunds: r.refunds.map((x) => ({ name: x.name, base: x.base, paidOut: `${x.local} ${x.currency}` })),
+  };
+  if (aiConfigured()) {
+    try {
+      const out = (await gemini(
+        `You write the closing recap for a group trip kitty (max 450 chars, 2-4 friendly sentences, one optional emoji).
+Use ONLY the numbers given. Say what was collected, what it was spent on, and that the rest went back to each friend in their own currency. No invented figures.
+Return JSON: {"summary": string}`,
+        JSON.stringify(facts),
+      )) as { summary?: string };
+      if (out?.summary) return out.summary;
+    } catch (e) {
+      console.error("gemini trip summary failed, using template", e);
+    }
+  }
+  const top = Object.entries(spentOn).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([n, v]) => `${n} (${fmt(v, k.baseCurrency)})`);
+  return `${k.name} is wrapped up. The group collected ${fmt(r.collected, k.baseCurrency)} and spent ${fmt(r.spent, k.baseCurrency)}${top.length ? ` on ${top.join(", ")}` : ""}. The remaining ${fmt(r.refunded, k.baseCurrency)} went back to ${r.refunds.length} friend${r.refunds.length === 1 ? "" : "s"} in their own currency.`;
 }

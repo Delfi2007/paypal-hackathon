@@ -9,6 +9,8 @@ import { Avatar, Chip, FeatureTag, api, proposalTone, timeAgo } from "@/componen
 import { fmt } from "@/lib/money";
 import { rebalancePreview } from "@/lib/rebalance";
 import type { Kitty, PolicyResult, Proposal } from "@/lib/types";
+import { refundShares } from "@/lib/closeout";
+import { poolBalance } from "@/lib/policy";
 
 export default function ApprovalsPage() {
   const { kitty: k, actor, reload } = useKitty();
@@ -61,8 +63,16 @@ export default function ApprovalsPage() {
                   {amount > 0 && (
                     <dl className="mt-6 text-sm space-y-3">
                       <div className="flex justify-between"><dt className="text-ink-2">Amount</dt><dd className="num font-semibold">{fmt(amount, k.baseCurrency)}</dd></div>
-                      <div className="flex justify-between"><dt className="text-ink-2">Pool after</dt><dd className="num font-semibold">{fmt(k.members.reduce((s, m) => s + m.paid, 0) - k.spent - amount, k.baseCurrency)}</dd></div>
+                      <div className="flex justify-between"><dt className="text-ink-2">Pool after</dt><dd className="num font-semibold">{fmt(poolBalance(k) - amount, k.baseCurrency)}</dd></div>
                       <div className="flex justify-between border-t border-line pt-3"><dt className="text-ink-2">Amount to pay</dt><dd className="num text-2xl font-semibold text-blue">{fmt(amount, k.baseCurrency)}</dd></div>
+                    </dl>
+                  )}
+                  {p.action.type === "close_out" && (
+                    <dl className="mt-6 text-sm space-y-2">
+                      <div className="flex justify-between"><dt className="text-ink-2">Returned to friends</dt><dd className="num font-semibold">{fmt(poolBalance(k), k.baseCurrency)}</dd></div>
+                      {refundShares(k).map((r) => (
+                        <div key={r.memberId} className="flex justify-between"><dt className="text-ink-2">{k.members.find((m) => m.id === r.memberId)?.name}</dt><dd className="num">{fmt(r.base, k.baseCurrency)}</dd></div>
+                      ))}
                     </dl>
                   )}
                   <p className="mt-5 text-sm text-ink-2 italic">“{p.action.reasoning}”</p>

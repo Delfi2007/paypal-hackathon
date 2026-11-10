@@ -2,19 +2,20 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, Bell, Check, Copy, Loader2, Plus, Search, SendHorizontal } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Bell, Check, Copy, Flag, Loader2, Plus, Search, SendHorizontal } from "lucide-react";
 import { useKitty } from "@/components/KittyShell";
 import { Avatar, BigMoney, Chip, FeatureTag, PayPalBadge, SectionHead, api, timeAgo } from "@/components/kit";
 import { fmt } from "@/lib/money";
-import type { Currency } from "@/lib/types";
+import { poolBalance } from "@/lib/policy";
+import { refundShares } from "@/lib/closeout";
+import type { Currency, Kitty, Member } from "@/lib/types";
 
 const CARD_COLORS = ["#f4f15a", "#3cf0c6", "#38a8ff", "#c9b8ff", "#ff9eb1"];
 
 export default function WalletPage() {
   const { kitty: k, actor, reload, invite } = useKitty();
   const cur = k.baseCurrency;
-  const collected = k.members.reduce((s, m) => s + m.paid, 0);
-  const pool = collected - k.spent;
+  const pool = poolBalance(k);
   const [requesting, setRequesting] = useState(false);
   const [requested, setRequested] = useState<string | null>(null);
 
@@ -70,12 +71,13 @@ export default function WalletPage() {
             </div>
             <p className="text-white/55 mt-8 text-sm">Pool balance</p>
             <BigMoney value={fmt(pool, cur)} className="block text-6xl sm:text-7xl font-medium mt-1 tracking-tight" />
-            <div className="mt-6 flex flex-wrap gap-2">
+            {k.status === "closed" && <div className="mt-6"><Chip tone="mute">Trip closed · leftover returned to friends</Chip></div>}
+            {k.status !== "closed" && <div className="mt-6 flex flex-wrap gap-2">
               <Link href={`/k/${k.id}/send`} className="btn bg-white text-ink hover:bg-white/90 !py-2.5"><SendHorizontal size={16} /> Pay vendor</Link>
               <button onClick={requestAll} disabled={requesting} className="btn glass-dark text-white !py-2.5">
                 {requesting ? <Loader2 size={16} className="animate-spin" /> : <ArrowDownLeft size={16} />} Request shares
               </button>
-            </div>
+            </div>}
             {requested && <p className="mt-3 text-sm text-mint pop">PayPal invoices sent to everyone who owes. See Activity.</p>}
 
             <div className="mt-8 glass-dark rounded-2xl p-4 flex items-center justify-between gap-4">
@@ -114,6 +116,8 @@ export default function WalletPage() {
           </div>
         </div>
       </section>
+
+      <CloseOut k={k} actor={actor} pool={pool} reload={reload} />
 
       <div className="grid gap-8 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         {/* ---------------- transactions sheet */}
@@ -160,8 +164,79 @@ export default function WalletPage() {
   );
 }
 
+/** Trip close-out: propose returning the leftover pool (organiser), or read the final report once closed. */
+function CloseOut({ k, actor, pool, reload }: { k: Kitty; actor: Member; pool: number; reload: () => Promise<void> | void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const cur = k.baseCurrency;
+  const name = (id: string) => k.members.find((m) => m.id === id)?.name ?? "Friend";
+
+  if (k.status === "closed" && k.closeOut) {
+    const c = k.closeOut;
+    return (
+      <section className="panel p-6 sm:p-8 rise">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2"><Flag size={18} className="text-blue" /><h3 className="font-semibold">Trip report</h3></div>
+          <div className="flex items-center gap-2"><PayPalBadge what="Refunds" /><Chip tone="ok">Closed</Chip></div>
+        </div>
+        <p className="mt-4 text-ink-2 max-w-3xl">{c.summary}</p>
+        <dl className="mt-6 grid grid-cols-3 gap-4 text-sm max-w-xl">
+          <div><dt className="text-mute">Collected</dt><dd className="num text-xl font-semibold">{fmt(c.collected, cur)}</dd></div>
+          <div><dt className="text-mute">Spent</dt><dd className="num text-xl font-semibold">{fmt(c.spent, cur)}</dd></div>
+          <div><dt className="text-mute">Returned</dt><dd className="num text-xl font-semibold text-ok">{fmt(c.refunded, cur)}</dd></div>
+        </dl>
+        <ul className="mt-6 divide-y divide-line text-sm">
+          {c.refunds.map((r) => (
+            <li key={r.memberId} className="py-3 flex items-center justify-between gap-3">
+              <span className="font-medium">{r.name}</span>
+              <span className="text-right"><span className="num font-semibold">{fmt(r.local, r.currency)}</span>{r.currency !== cur && <span className="text-xs text-mute"> ≈ {fmt(r.base, cur)}</span>}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-4 text-xs text-mute">{c.failed?.length ? `Refund failed for ${c.failed.join(", ")}. That money is still in the pool for the organiser to settle.` : "Each refund went back to the way that friend paid."}{c.simulated ? " (simulated)" : ""}</p>
+      </section>
+    );
+  }
+
+  if (k.status !== "active" || actor.role !== "organizer" || pool < 0.01) return null;
+  const preview = refundShares(k);
+  const open = k.proposals.some((p) => p.status === "pending" && p.action.type === "close_out");
+
+  async function propose() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api<{ decision: string }>(`/api/kitties/${k.id}/action`, { label: "Close out the trip and refund everyone", action: { type: "close_out", params: {}, reasoning: "The trip is over. Return what is left in the pool to each friend, in proportion to what they paid." } });
+      setMsg(r.decision === "needs_quorum" ? "Sent to the group. It runs as soon as enough friends approve it under Approvals." : r.decision);
+      await reload();
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel p-6 sm:p-8 rise">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2"><Flag size={18} className="text-blue" /><h3 className="font-semibold">Trip over?</h3></div>
+          <p className="text-sm text-ink-2 mt-1 max-w-xl">Return the {fmt(pool, cur)} left in the pool to everyone, in proportion to what each friend paid. The group votes first, then Kitty pays it back with PayPal Payouts in each friend&apos;s own currency.</p>
+        </div>
+        <button onClick={propose} disabled={busy || open} className="btn btn-blue">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Flag size={16} />} {open ? "Waiting on the group" : "Close out & refund"}
+        </button>
+      </div>
+      <ul className="mt-5 flex flex-wrap gap-2 text-sm">
+        {preview.map((r) => <li key={r.memberId} className="rounded-full bg-soft px-3 py-1.5">{name(r.memberId)} <span className="num font-semibold">{fmt(r.base, cur)}</span></li>)}
+      </ul>
+      {msg && <p className="mt-3 text-sm text-blue">{msg}</p>}
+    </section>
+  );
+}
+
 function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<typeof useKitty>["kitty"]["members"][0]; cur: Currency; me: boolean }) {
-  const { actor, reload } = useKitty();
+  const { actor, reload, kitty } = useKitty();
   const [busy, setBusy] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -174,6 +249,8 @@ function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<ty
       await reload();
     } catch (e) { setNote((e as Error).message); } finally { setBusy(false); setConfirmLeave(false); }
   }
+  const closed = kitty.status === "closed";
+  const back = kitty.closeOut?.refunds.find((r) => r.memberId === m.id);
   async function cash() {
     setBusy(true);
     try {
@@ -192,14 +269,18 @@ function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<ty
       <p className="font-semibold mt-2">{m.name}{me && <span className="text-mute font-normal"> (you)</span>}</p>
       <p className="text-[11px] text-mute">pays in {m.currency}{m.role === "organizer" ? " · organiser" : ""}</p>
       <p className="num text-lg font-semibold mt-2">{fmt(m.paid, cur)}<span className="text-mute text-xs font-normal"> / {fmt(m.share, cur)}</span></p>
-      {done ? (
+      {back ? (
+        <Chip tone="ok" className="mt-2"><Check size={11} /> {fmt(back.base, cur)} returned</Chip>
+      ) : done ? (
         <Chip tone="ok" className="mt-2"><Check size={11} /> Paid</Chip>
+      ) : closed ? (
+        <Chip tone="mute" className="mt-2">{m.paid > 0 ? "Settled" : "Didn't pay in"}</Chip>
       ) : me ? (
         <Link href={`/pay/${kittyId}`} className="btn btn-blue !py-1.5 !px-3 text-xs mt-2">Pay my share</Link>
       ) : (
         <Chip tone="warn" className="mt-2">{m.remindersSent ? `${m.remindersSent} reminder${m.remindersSent > 1 ? "s" : ""}` : "Hasn't paid yet"}</Chip>
       )}
-      {!done && actor.role === "organizer" && (
+      {!done && !closed && actor.role === "organizer" && (
         <button onClick={cash} disabled={busy} className="mt-2 text-[11px] font-semibold text-blue hover:underline">{busy ? "Recording…" : "Mark paid in cash"}</button>
       )}
       {m.role !== "organizer" && (me || actor.role === "organizer") && (

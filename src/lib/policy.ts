@@ -50,7 +50,46 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
   const m = k.mandate;
   const cur = k.baseCurrency;
 
+  // A closed kitty is read-only for money: nothing can be paid, invoiced or re-closed.
+  if (k.status === "closed" && !["note", "split_bill"].includes(action.type)) {
+    return decide(
+      [{ rule: "Kitty is open", pass: false, detail: "This kitty has been closed and its leftover pool returned", severity: "block" }],
+      "",
+    );
+  }
+
   switch (action.type) {
+    case "close_out": {
+      const balance = poolBalance(k);
+      const waiting = k.proposals.filter((x) => x.status === "pending" && x.awaitingFunds);
+      const checks: PolicyCheck[] = [
+        {
+          rule: "Kitty is open",
+          pass: k.status === "active",
+          detail: k.status === "active" ? "Mandate is in force" : "The mandate must be in force first",
+          severity: "block",
+        },
+        {
+          rule: "Money left to return",
+          pass: balance >= 0.01,
+          detail: `Pool balance ${fmt(balance, cur)}`,
+          severity: "block",
+        },
+        {
+          rule: "No payments waiting on funds",
+          pass: waiting.length === 0,
+          detail: waiting.length ? `${waiting.length} approved payment(s) still queued: pay or reject them first` : "Nothing queued",
+          severity: "block",
+        },
+        {
+          rule: "Closing the kitty needs the group",
+          pass: false,
+          detail: `Returning the pool to members needs ${m.quorum} votes`,
+          severity: "quorum",
+        },
+      ];
+      return decide(checks, "");
+    }
     case "pay_vendor": {
       const amount = Number(action.params.amount ?? 0);
       const vendorId = String(action.params.vendorId ?? "");

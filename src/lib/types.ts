@@ -76,6 +76,7 @@ export type ActionType =
   | "void_payout"
   | "drop_member"
   | "amend_mandate"
+  | "close_out"
   | "note";
 
 export interface AgentAction {
@@ -196,11 +197,32 @@ export interface Bill {
   paidBy?: string;
 }
 
+export interface Refund {
+  memberId: string;
+  name: string;
+  base: number; // amount in kitty base currency
+  local: number; // amount actually sent, in the member's own currency
+  currency: Currency;
+}
+
+/** Final report written when the group closes the kitty and the leftover pool is returned. */
+export interface CloseOutReport {
+  closedAt: string;
+  collected: number;
+  spent: number;
+  refunded: number;
+  refunds: Refund[];
+  failed?: string[]; // names whose refund PayPal rejected (organiser settles these by hand)
+  status: "complete" | "partial";
+  simulated: boolean;
+  summary: string; // AI-written recap for the group
+}
+
 export interface Kitty {
   id: string;
   createdBy: string;
   inviteCode: string;
-  status: "forming" | "active";
+  status: "forming" | "active" | "closed";
   sharePerMember: number;
   expectedMembers: number;
   name: string;
@@ -219,6 +241,7 @@ export interface Kitty {
   departed?: { id: string; name: string; at: string; refunded: number }[]; // friends who dropped out
   idem?: string[]; // idempotency keys already processed (payouts, refunds): replays are ignored
   spent: number; // total paid out to vendors, base currency
+  closeOut?: CloseOutReport;
 }
 
 export interface ModeStatus {
