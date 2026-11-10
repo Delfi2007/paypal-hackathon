@@ -32,10 +32,17 @@ export function verifyPassword(pw: string, stored: string): boolean {
   return crypto.timingSafeEqual(want, got);
 }
 
-export async function startSession(userId: string) {
+function sessionToken(userId: string) {
   const exp = Date.now() + TTL_DAYS * 86400_000;
   const payload = b64(JSON.stringify({ u: userId, e: exp }));
-  (await cookies()).set(COOKIE, `${payload}.${sign(payload)}`, {
+  return `${payload}.${sign(payload)}`;
+}
+
+/** A ready-made Cookie header for a user. Server-side only: the demo seeder uses it to call the app's own API as each friend. */
+export const sessionCookie = (userId: string) => `${COOKIE}=${sessionToken(userId)}`;
+
+export async function startSession(userId: string) {
+  (await cookies()).set(COOKIE, sessionToken(userId), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

@@ -1,5 +1,6 @@
 "use client";
 
+import { isDemoEmail } from "@/lib/demo";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
@@ -89,6 +90,12 @@ export function KittyShell({ id, children }: { id: string; children: React.React
   const base = `/k/${k.id}`;
   const signed = k.mandate.signedBy.includes(actor.id);
 
+  // Demo only: become another friend of this group, to sign, pay or vote as them.
+  async function viewAs(memberId: string) {
+    await api("/api/demo/switch", { memberId });
+    window.location.reload();
+  }
+
   async function sign() {
     setSigning(true);
     try { await api(`/api/kitties/${k.id}/sign`, {}); await reload(); } finally { setSigning(false); }
@@ -158,6 +165,15 @@ export function KittyShell({ id, children }: { id: string; children: React.React
           <header className="sticky top-0 z-30 flex items-center gap-3 px-4 sm:px-8 py-3 bg-bg/80 backdrop-blur border-b border-line/60">
             <button className="lg:hidden btn btn-ghost !p-2.5" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={18} /></button>
             <div className="lg:hidden"><Logo /></div>
+            {isDemoEmail(data.user.email) && (
+              <div className="flex items-center gap-1 rounded-full bg-white border border-line p-1" title="Demo: switch between the three friends to sign, pay and vote as each of them">
+                <span className="label hidden sm:inline px-2 whitespace-nowrap">View as</span>
+                {k.members.map((m) => (
+                  <button key={m.id} onClick={() => viewAs(m.id)} disabled={m.id === actor.id} aria-pressed={m.id === actor.id}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition ${m.id === actor.id ? "bg-ink text-white" : "text-ink-2 hover:bg-soft"}`}>{m.name}</button>
+                ))}
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-2">
               <Chip tone={data.mode.paypal === "live-sandbox" ? "blue" : "mute"} className="hidden md:inline-flex">
                 <CircleDollarSign size={12} /> {data.mode.paypal === "live-sandbox" ? "PayPal sandbox · live" : "PayPal · simulated"}

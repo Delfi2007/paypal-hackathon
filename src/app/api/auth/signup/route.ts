@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/api";
 import { hashPassword, startSession } from "@/lib/auth";
 import { createUser, getUserByEmail, publicUser } from "@/lib/store";
+import { isDemoEmail } from "@/lib/demo";
 import type { Currency } from "@/lib/types";
 
 const CUR = ["USD", "EUR", "GBP", "AUD", "CAD", "JPY", "SGD"];
@@ -12,6 +13,7 @@ export async function POST(req: Request) {
     const email = (b.email ?? "").trim().toLowerCase();
     if (name.length < 2) throw new Error("Please enter your name");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("Enter a valid email address");
+    if (isDemoEmail(email)) throw new Error("That email domain is reserved for the built-in demo");
     if ((b.password ?? "").length < 8) throw new Error("Password must be at least 8 characters");
     const currency = (CUR.includes(b.currency ?? "") ? b.currency : "USD") as Currency;
     const paypalEmail = (b.paypalEmail ?? "").trim().toLowerCase();

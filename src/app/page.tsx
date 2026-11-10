@@ -1,7 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, Check, Play, ShieldCheck, Sparkles, Vote } from "lucide-react";
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Check, ShieldCheck, Sparkles, Vote } from "lucide-react";
 import { SiteNav } from "@/components/SiteNav";
+import { DemoButton } from "@/components/DemoButton";
 import { FEATURES, featureHref } from "@/lib/features";
 
 export default function Home() {
@@ -26,7 +27,7 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-wrap justify-center gap-3 rise" style={{ animationDelay: ".15s" }}>
               <Link href="/signup" className="btn btn-dark !py-3.5">Get started free <Sparkles size={15} /></Link>
-              <Link href="/login" className="btn bg-white/20 backdrop-blur border border-white/40 text-white !py-3.5">Log in <Play size={14} /></Link>
+              <DemoButton className="btn bg-white/20 backdrop-blur border border-white/40 text-white !py-3.5" />
             </div>
 
             {/* floating product cards */}
