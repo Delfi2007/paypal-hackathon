@@ -149,7 +149,7 @@ export default function WalletPage() {
 
         {/* ---------------- recipients grid */}
         <section className="rise" style={{ animationDelay: ".14s" }}>
-          <SectionHead eyebrow="Travellers" title="Who's in" right={<Link href={`/k/${k.id}/agent`} className="btn btn-ghost !py-2 text-sm"><Bell size={14} /> Remind</Link>} />
+          <SectionHead eyebrow="Travellers" title="Who's in" right={k.status === "closed" ? undefined : <Link href={`/k/${k.id}/agent`} className="btn btn-ghost !py-2 text-sm"><Bell size={14} /> Remind</Link>} />
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {k.members.map((m) => <MemberTile key={m.id} kittyId={k.id} m={m} cur={cur} me={m.id === actor.id} />)}
             {k.members.length < k.expectedMembers && (
@@ -283,7 +283,7 @@ function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<ty
       {!done && !closed && actor.role === "organizer" && (
         <button onClick={cash} disabled={busy} className="mt-2 text-[11px] font-semibold text-blue hover:underline">{busy ? "Recording…" : "Mark paid in cash"}</button>
       )}
-      {m.role !== "organizer" && (me || actor.role === "organizer") && (
+      {!closed && m.role !== "organizer" && (me || actor.role === "organizer") && (
         <button onClick={() => (confirmLeave ? leave() : setConfirmLeave(true))} onBlur={() => setTimeout(() => setConfirmLeave(false), 150)} disabled={busy}
           className={`mt-1 text-[11px] font-semibold hover:underline ${confirmLeave ? "text-bad" : "text-mute"}`}>
           {confirmLeave ? "Tap again to ask the group" : me ? "Leave this kitty" : "Friend dropped out?"}
