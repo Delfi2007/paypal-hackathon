@@ -148,4 +148,11 @@ server.tool("kitty_verify", "Independently verify the group's Ed25519 mandate si
 
 server.tool("kitty_discover", "Find real products/merchants (Channel3, free tier) priced in the kitty's currency, each screened by the injection guard. Use it to research before proposing a payment.", { kittyId: z.string(), query: z.string() }, async ({ kittyId, query }) => text(await api(`/api/kitties/${kittyId}/discover?q=${encodeURIComponent(query)}`)));
 
+server.tool(
+  "kitty_reconcile",
+  "Check that PayPal's own records (invoices, checkouts, payouts, disputes, read through PayPal's official Agent Toolkit) match the kitty's books. Read-only.",
+  { kittyId: z.string() },
+  async ({ kittyId }) => text(await api(`/api/kitties/${kittyId}/reconcile`, {})),
+);
+
 await server.connect(new StdioServerTransport());

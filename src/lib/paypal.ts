@@ -393,3 +393,12 @@ export async function verifyWebhook(headers: Headers, body: unknown): Promise<bo
     return false;
   }
 }
+export const paypalAccessToken = () => accessToken();
+
+/** Current status of a payout batch (PENDING, SUCCESS, DENIED...). */
+export async function payoutBatchStatus(batchId: string): Promise<{ status: string; items: { status: string; receiver?: string; amount?: string }[] }> {
+  if (!paypalConfigured() || batchId.startsWith("SIM-")) return { status: "SUCCESS", items: [] };
+  type B = { batch_header: { batch_status: string }; items?: { transaction_status?: string; payout_item?: { receiver?: string; amount?: { value?: string } } }[] };
+  const j = await pp<B>(`/v1/payments/payouts/${batchId}`);
+  return { status: j.batch_header.batch_status, items: (j.items ?? []).map((i) => ({ status: i.transaction_status ?? "", receiver: i.payout_item?.receiver, amount: i.payout_item?.amount?.value })) };
+}
