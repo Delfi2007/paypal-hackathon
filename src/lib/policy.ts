@@ -10,6 +10,7 @@ import type {
   VendorCategory,
 } from "./types";
 import { fmt } from "./money";
+import { scan, scanFields, reason } from "./guard";
 
 export function poolBalance(k: Kitty): number {
   const collected = k.members.reduce((s, m) => s + m.paid, 0);
@@ -65,6 +66,16 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
           rule: "Known payee",
           pass: !!vendor,
           detail: vendor ? `${vendor.name} <${vendor.email}>` : "Payee not in the kitty's vendor list",
+          severity: "block",
+        },
+        {
+          rule: "Payee and memo passed the injection guard",
+          pass: !vendor?.quarantined && !scan(String(action.params.memo ?? "")).blocked,
+          detail: vendor?.quarantined
+            ? `Payee quarantined: ${vendor.quarantined.reason}`
+            : scan(String(action.params.memo ?? "")).blocked
+              ? `Memo rejected: ${reason(scan(String(action.params.memo ?? "")))}`
+              : "No hidden instructions found",
           severity: "block",
         },
         {
@@ -151,7 +162,14 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
 
     case "add_vendor": {
       const category = String(action.params.category ?? "other") as VendorCategory;
+      const hit = scanFields({ name: action.params.name, email: action.params.email, category: action.params.category });
       const checks: PolicyCheck[] = [
+        {
+          rule: "Payee details passed the injection guard",
+          pass: !hit,
+          detail: hit ? `${hit.field}: ${reason(hit.verdict)}` : "No hidden instructions found",
+          severity: "block",
+        },
         {
           rule: "Allowed category",
           pass: m.allowedCategories.includes(category),
@@ -160,6 +178,51 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
         },
       ];
       return decide(checks, "Vendor can be added (payments still checked separately)");
+    }
+
+    case "refund_member": {
+      const member = k.members.find((x) => x.id === String(action.params.memberId ?? ""));
+      const amount = Number(action.params.amount ?? 0);
+      const balance = poolBalance(k);
+      const checks: PolicyCheck[] = [
+        { rule: "Valid amount", pass: amount > 0 && Number.isFinite(amount), detail: `Requested ${fmt(amount, cur)}`, severity: "block" },
+        { rule: "Known member", pass: !!member, detail: member ? member.name : "Not a member of this kitty", severity: "block" },
+        {
+          rule: "Refund within what they paid",
+          pass: !!member && amount <= member.paid + 0.001,
+          detail: member ? `${member.name} has paid ${fmt(member.paid, cur)}` : "—",
+          severity: "block",
+        },
+        { rule: "Pool has funds", pass: amount <= balance, detail: `Pool balance ${fmt(balance, cur)}`, severity: "block" },
+        {
+          rule: "Refunds need the group",
+          pass: false,
+          detail: `Taking money out of the pool needs ${m.quorum} votes`,
+          severity: "quorum",
+        },
+      ];
+      return decide(checks, `Refund of ${fmt(amount, cur)}`);
+    }
+
+    case "void_payout": {
+      const po = k.payouts.find((x) => x.id === String(action.params.payoutId ?? ""));
+      const done = !!po && /^(RETURNED|CANCELED|REFUNDED|REVERSED|SUCCESS)$/i.test(po.status);
+      const checks: PolicyCheck[] = [
+        { rule: "Known payout", pass: !!po, detail: po ? `${fmt(po.amount, cur)} · ${po.status}` : "No such payout", severity: "block" },
+        {
+          rule: "Payout can still be stopped",
+          pass: !!po && !done,
+          detail: done ? `Already ${po!.status}; the vendor has it or it was returned` : "Not yet claimed by the vendor",
+          severity: "block",
+        },
+        {
+          rule: "Voiding a sent payment needs the group",
+          pass: false,
+          detail: `Reversing a payment needs ${m.quorum} votes`,
+          severity: "quorum",
+        },
+      ];
+      return decide(checks, "Payout can be voided");
     }
 
     case "amend_mandate":

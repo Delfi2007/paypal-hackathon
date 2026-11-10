@@ -23,6 +23,7 @@ export interface Member {
   joinedAt?: string;
   invoiceId?: string;
   orderId?: string;
+  captureId?: string; // PayPal capture id of the last card/PayPal contribution (needed to refund it)
   avatarHue: number;
   isOrganizer?: boolean;
 }
@@ -40,6 +41,16 @@ export interface Vendor {
   email: string; // PayPal receiver email
   category: VendorCategory;
   addedBy?: string;
+  quarantined?: { reason: string; at: string }; // flagged by the prompt-injection guard
+}
+
+export interface MandateSignature {
+  memberId: string;
+  publicKey: string; // Ed25519 public key (SPKI DER, base64url)
+  signature: string; // Ed25519 signature over the canonical mandate message (base64url)
+  version: number; // mandate version that was signed
+  signedAt: string;
+  custody: "server" | "self"; // who held the private key
 }
 
 export interface Mandate {
@@ -50,6 +61,7 @@ export interface Mandate {
   quorum: number; // votes needed to approve out-of-mandate actions
   deadline: string; // ISO date; collection deadline
   signedBy: string[]; // member ids who signed the mandate
+  signatures?: MandateSignature[]; // cryptographic Ed25519 signatures, bound to a mandate version
   version: number;
 }
 
@@ -60,6 +72,8 @@ export type ActionType =
   | "add_vendor"
   | "split_bill"
   | "record_cash"
+  | "refund_member"
+  | "void_payout"
   | "amend_mandate"
   | "note";
 
@@ -96,6 +110,7 @@ export interface Proposal {
   title: string;
   awaitingFunds?: boolean; // approved/allowed, waits until the pool is funded
   requestedBy?: string;
+  nudgedAt?: string; // scheduler: when non-voters were last reminded
   preApproved?: boolean; // within mandate, only waiting on funds
 }
 
@@ -136,8 +151,29 @@ export interface Payout {
   amount: number;
   memo: string;
   paypalBatchId?: string;
+  itemId?: string; // PayPal payout item id (needed to cancel an unclaimed payout)
   status: string;
   ts: string;
+  idemKey?: string; // idempotency key sent to PayPal
+}
+
+/** An authorization hold: money is reserved on the member's PayPal, captured or voided later. */
+export interface Hold {
+  id: string;
+  memberId: string;
+  orderId: string;
+  authorizationId?: string;
+  amount: number; // in `currency`
+  currency: Currency;
+  baseAmount: number; // in the kitty base currency
+  status: "created" | "authorized" | "captured" | "voided" | "expired";
+  createdAt: string;
+  authorizedAt?: string;
+  reauthorizedAt?: string;
+  closedAt?: string;
+  captureId?: string;
+  note?: string;
+  simulated?: boolean;
 }
 
 export interface BillItem {
@@ -178,6 +214,8 @@ export interface Kitty {
   ledger: LedgerEvent[];
   payouts: Payout[];
   bills: Bill[];
+  holds?: Hold[];
+  idem?: string[]; // idempotency keys already processed (payouts, refunds): replays are ignored
   spent: number; // total paid out to vendors, base currency
 }
 

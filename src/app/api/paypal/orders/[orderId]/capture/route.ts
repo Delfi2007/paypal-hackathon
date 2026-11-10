@@ -15,6 +15,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
       const cap = await captureOrder(orderId, fallback);
       if (cap.status !== "COMPLETED") throw new Error(`Payment not completed (${cap.status})`);
       m.orderId = orderId;
+      if (cap.captureId) m.captureId = cap.captureId;
       await recordContribution(k, m, { amount: cap.amount, currency: cap.currency }, cap.captureId ?? orderId);
       return cap;
     });
