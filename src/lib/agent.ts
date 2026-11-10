@@ -8,6 +8,7 @@ import * as paypal from "./paypal";
 import { convert, fmt } from "./money";
 import { log, notify, uid } from "./store";
 import { personaOf } from "./persona";
+import { rebalancePreview } from "./rebalance";
 import crypto from "node:crypto";
 import * as guard from "./guard";
 
@@ -25,6 +26,10 @@ function title(k: Kitty, a: AgentAction): string {
     case "refund_member": {
       const m = k.members.find((x) => x.id === p.memberId);
       return `Refund ${m?.name ?? "member"} ${fmt(Number(p.amount), k.baseCurrency)}`;
+    }
+    case "drop_member": {
+      const m = k.members.find((x) => x.id === p.memberId);
+      return `${m?.name ?? "A friend"} leaves; re-split the shares`;
     }
     case "void_payout": {
       const po = k.payouts.find((x) => x.id === p.payoutId);
@@ -318,6 +323,59 @@ export async function execute(k: Kitty, action: AgentAction, ctx: { idem?: strin
         po.status = c.status;
         k.spent = round2(Math.max(0, k.spent - po.amount));
         log(k, { actor: "paypal", kind: "info", title: `Voided payout to ${v?.name ?? "vendor"} ${fmt(po.amount, k.baseCurrency)}`, detail: `Returned to the pool · PayPal ${c.status}${c.simulated ? " (simulated)" : ""}`, amount: po.amount, ref: po.paypalBatchId });
+        break;
+      }
+      case "drop_member": {
+        // A friend leaves. The group already approved these exact numbers (see rebalancePreview).
+        const pv = rebalancePreview(k, String(p.memberId));
+        if (!pv.ok) throw new Error(pv.reason ?? "Cannot remove this member");
+        const leaver = k.members.find((x) => x.id === pv.leaverId)!;
+
+        // 1. give back what they paid (reuses the refund path: PayPal refund, idempotency, ledger)
+        if (pv.refund > 0) await execute(k, { type: "refund_member", params: { memberId: leaver.id, amount: pv.refund }, reasoning: `${leaver.name} dropped out` }, { idem: ctx.idem ? `${ctx.idem}-refund` : undefined });
+        // 2. release any open PayPal authorization hold, and cancel an unpaid invoice
+        const { holdsOf, voidHold } = await import("./holds");
+        for (const h of holdsOf(k).filter((x) => x.memberId === leaver.id && (x.status === "created" || x.status === "authorized"))) {
+          try { await voidHold(k, h.id, "scheduler", `${leaver.name} dropped out`); } catch { /* already lapsed */ }
+        }
+        if (leaver.invoiceId && leaver.paid <= 0) {
+          try { await paypal.cancelInvoice(leaver.invoiceId, `${leaver.name} left ${k.name}`); } catch { /* already paid or cancelled */ }
+        }
+        // 3. remove them and re-split the same budget between the friends who remain
+        k.departed = [{ id: leaver.id, name: leaver.name, at: new Date().toISOString(), refunded: pv.refund }, ...(k.departed ?? [])];
+        k.members = k.members.filter((x) => x.id !== leaver.id);
+        k.expectedMembers = k.members.length;
+        k.sharePerMember = pv.newShare;
+        k.mandate.quorum = Math.max(1, Math.min(k.mandate.quorum, k.members.length));
+        k.mandate.signedBy = k.mandate.signedBy.filter((id) => id !== leaver.id);
+        k.mandate.signatures = (k.mandate.signatures ?? []).filter((s) => s.memberId !== leaver.id);
+        for (const pr of k.proposals) {
+          pr.approvals = pr.approvals.filter((id) => id !== leaver.id);
+          pr.rejections = pr.rejections.filter((id) => id !== leaver.id);
+        }
+        const needTopUp: string[] = [];
+        for (const m of k.members) {
+          m.share = pv.newShare;
+          if (m.paid >= m.share) m.paidAt ??= new Date().toISOString();
+          else {
+            m.paidAt = undefined;
+            if (m.paid > 0) { m.invoiceId = undefined; needTopUp.push(m.name); } // a fresh invoice for the difference only
+          }
+          m.persona = personaOf(m, k.mandate.deadline);
+        }
+        if (k.status === "active" && k.mandate.signedBy.length < k.mandate.quorum) k.status = "forming";
+        log(k, {
+          actor: "system",
+          kind: "info",
+          title: `${leaver.name} left the kitty. Shares re-split: ${fmt(pv.oldShare, k.baseCurrency)} → ${fmt(pv.newShare, k.baseCurrency)} each`,
+          detail: `Refunded ${fmt(pv.refund, k.baseCurrency)} · ${pv.remaining} friends remain · ${fmt(pv.totalTopUp, k.baseCurrency)} of top-ups, ${needTopUp.length ? needTopUp.join(", ") + " pay only the difference" : "no one has paid yet"}`,
+        });
+        notify(k.members.map((x) => x.id), { kittyId: k.id, kind: "info", title: `${leaver.name} left ${k.name}`, body: `Your share is now ${fmt(pv.newShare, k.baseCurrency)}.`, href: `/k/${k.id}` });
+        notify([leaver.id], { kittyId: k.id, kind: "payment", title: `You left ${k.name}`, body: pv.refund > 0 ? `${fmt(pv.refund, k.baseCurrency)} is being refunded to you.` : "Nothing was owed.", href: "/app" });
+        // 4. invoice the difference to anyone who must top up
+        if (k.members.some((m) => m.paid < m.share && !m.invoiceId)) {
+          try { await execute(k, { type: "request_contributions", params: {}, reasoning: "Top-ups after a friend dropped out" }); } catch { /* shown in the ledger by that step */ }
+        }
         break;
       }
       case "amend_mandate": {

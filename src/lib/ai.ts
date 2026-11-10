@@ -99,6 +99,7 @@ Available action types and params:
 - "send_reminders": { "memberIds": string[] }  (members who still owe)
 - "refund_member": { "memberId": string, "amount": number (base currency, at most what they paid) }  (give money back to a member)
 - "void_payout": { "payoutId": string }  (stop a payout the vendor has not claimed yet; only for ids listed under payouts)
+- "drop_member": { "memberId": string }  (a friend drops out: they are refunded, the same budget is re-split between the rest, and friends who already paid owe only the difference)
 - "amend_mandate": { "totalBudget"?: number, "perPaymentCap"?: number, "quorum"?: number, "deadline"?: "YYYY-MM-DD", "approvePayees"?: string[] }
 - "note": { "text": string }  (answer a question, no money moves)
 
@@ -141,6 +142,16 @@ function rulePlan(k: Kitty, text: string): Plan {
   const t = text.toLowerCase();
   const amt = Number((text.match(/(\d[\d,]*(?:\.\d+)?)/)?.[1] ?? "0").replace(/,/g, ""));
   const owing = k.members.filter((m) => m.paid < m.share);
+
+  // "Ben dropped out", "Cara can't come anymore", "remove Dev"
+  if (/(drop(ped)? out|can'?t (come|make it|go)|cannot (come|go)|pull(ed)? out|back(ed)? out|not coming|is leaving|remove|kick)/.test(t)) {
+    const who = k.members.find((m) => m.role !== "organizer" && new RegExp(`\\b${m.name.split(/\s+/)[0].toLowerCase()}\\b`).test(t));
+    if (who)
+      return {
+        reply: `Sorry to lose ${who.name}. I'll propose refunding them and re-splitting the cost, and the group approves the difference.`,
+        actions: [{ type: "drop_member", params: { memberId: who.id }, reasoning: `${who.name} is dropping out, so the same budget is re-split between the remaining friends.` }],
+      };
+  }
 
   if (/(cap|budget|quorum|limit|deadline)/.test(t) && /(raise|increase|change|set|lower|bump|extend)/.test(t)) {
     const params: Record<string, unknown> = {};

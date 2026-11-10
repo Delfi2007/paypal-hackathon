@@ -74,6 +74,7 @@ export type ActionType =
   | "record_cash"
   | "refund_member"
   | "void_payout"
+  | "drop_member"
   | "amend_mandate"
   | "note";
 
@@ -215,6 +216,7 @@ export interface Kitty {
   payouts: Payout[];
   bills: Bill[];
   holds?: Hold[];
+  departed?: { id: string; name: string; at: string; refunded: number }[]; // friends who dropped out
   idem?: string[]; // idempotency keys already processed (payouts, refunds): replays are ignored
   spent: number; // total paid out to vendors, base currency
 }

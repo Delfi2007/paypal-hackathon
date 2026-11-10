@@ -10,8 +10,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const { me } = await needKitty(id);
     const { action, label } = (await req.json()) as { action: AgentAction; label?: string };
-    const allowed = ["pay_vendor", "request_contributions", "send_reminders", "amend_mandate", "add_vendor", "record_cash", "refund_member", "void_payout"];
+    const allowed = ["pay_vendor", "request_contributions", "send_reminders", "amend_mandate", "add_vendor", "record_cash", "refund_member", "void_payout", "drop_member"];
     if (!allowed.includes(action?.type)) throw new Error("Unsupported action");
+    // A friend can leave for themselves; only the organiser can remove someone else.
+    if (action.type === "drop_member" && action.params?.memberId !== me.id && me.role !== "organizer") throw new HttpError(403, "You can only leave for yourself; the organiser can remove others");
     if (action.type === "record_cash" && me.role !== "organizer") throw new HttpError(403, "Only the organiser can record cash payments");
     const out = await mutate(id, async (k) => {
       const actor = k.members.find((m) => m.id === me.id)!;

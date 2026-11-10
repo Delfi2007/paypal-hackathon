@@ -7,7 +7,8 @@ import { Check, Clock, Loader2, ShieldAlert, ShieldCheck, X } from "lucide-react
 import { useKitty } from "@/components/KittyShell";
 import { Avatar, Chip, FeatureTag, api, proposalTone, timeAgo } from "@/components/kit";
 import { fmt } from "@/lib/money";
-import type { PolicyResult, Proposal } from "@/lib/types";
+import { rebalancePreview } from "@/lib/rebalance";
+import type { Kitty, PolicyResult, Proposal } from "@/lib/types";
 
 export default function ApprovalsPage() {
   const { kitty: k, actor, reload } = useKitty();
@@ -65,6 +66,7 @@ export default function ApprovalsPage() {
                     </dl>
                   )}
                   <p className="mt-5 text-sm text-ink-2 italic">“{p.action.reasoning}”</p>
+                  {p.action.type === "drop_member" && <DropDiff k={k} memberId={String(p.action.params.memberId)} />}
                 </div>
 
                 <div className="bg-[#eef0fd] p-7 flex flex-col">
@@ -143,6 +145,31 @@ export default function ApprovalsPage() {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+// The group approves only the DIFFERENCE: exactly what changes if this friend drops out.
+function DropDiff({ k, memberId }: { k: Kitty; memberId: string }) {
+  const pv = rebalancePreview(k, memberId);
+  const cur = k.baseCurrency;
+  if (!pv.ok) return <p className="mt-4 text-sm text-bad">{pv.reason}</p>;
+  return (
+    <div className="mt-5 rounded-2xl bg-soft/70 p-4 text-sm">
+      <p className="label">What changes</p>
+      <ul className="mt-2 space-y-1.5">
+        <li className="flex justify-between"><span>Refund {pv.leaverName}</span><b className="num">{fmt(pv.refund, cur)}</b></li>
+        <li className="flex justify-between"><span>Everyone&apos;s share</span><b className="num">{fmt(pv.oldShare, cur)} → {fmt(pv.newShare, cur)}</b></li>
+        <li className="flex justify-between"><span>Pool after the refund</span><b className="num">{fmt(pv.poolAfterRefund, cur)}</b></li>
+      </ul>
+      <ul className="mt-3 divide-y divide-line/70">
+        {pv.rows.map((r) => (
+          <li key={r.memberId} className="py-1.5 flex justify-between gap-3">
+            <span>{r.name} <span className="text-mute">has paid {fmt(r.paid, cur)}</span></span>
+            <span className="num font-semibold">{r.owedAfter > 0 ? `owes ${fmt(r.owedAfter, cur)}` : "all paid"}{r.topUp > 0 ? <span className="text-[#a86d00]"> (+{fmt(r.topUp, cur)})</span> : null}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

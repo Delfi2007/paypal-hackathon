@@ -291,6 +291,13 @@ export async function refundCapture(opts: {
   return { id: j.id, status: j.status, simulated: false };
 }
 
+/** Cancels an unpaid invoice (used when a friend drops out before paying). */
+export async function cancelInvoice(id: string, note: string) {
+  if (!paypalConfigured() || id.startsWith("SIM-")) return { simulated: true };
+  await pp(`/v2/invoicing/invoices/${id}/cancel`, { method: "POST", json: { subject: "Invoice cancelled", note: note.slice(0, 1000), send_to_invoicer: false, send_to_recipient: false } });
+  return { simulated: false };
+}
+
 /** Records a refund against an invoice that was paid outside PayPal Checkout (cash / manual). */
 export async function refundInvoice(id: string, amount: number, currency: Currency, idemKey: string) {
   if (!paypalConfigured() || id.startsWith("SIM-")) return { simulated: true };

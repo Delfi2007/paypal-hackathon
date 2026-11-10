@@ -163,7 +163,17 @@ export default function WalletPage() {
 function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<typeof useKitty>["kitty"]["members"][0]; cur: Currency; me: boolean }) {
   const { actor, reload } = useKitty();
   const [busy, setBusy] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
   const done = m.paid >= m.share;
+  async function leave() {
+    setBusy(true);
+    try {
+      const r = await api<{ decision: string }>(`/api/kitties/${kittyId}/action`, { label: me ? `${m.name} asks to leave the kitty` : `Remove ${m.name} from the kitty`, action: { type: "drop_member", params: { memberId: m.id }, reasoning: me ? `${m.name} can't make it any more.` : `${m.name} dropped out.` } });
+      setNote(r.decision === "needs_quorum" ? "Vote opened: see Approvals" : r.decision);
+      await reload();
+    } catch (e) { setNote((e as Error).message); } finally { setBusy(false); setConfirmLeave(false); }
+  }
   async function cash() {
     setBusy(true);
     try {
@@ -192,6 +202,13 @@ function MemberTile({ kittyId, m, cur, me }: { kittyId: string; m: ReturnType<ty
       {!done && actor.role === "organizer" && (
         <button onClick={cash} disabled={busy} className="mt-2 text-[11px] font-semibold text-blue hover:underline">{busy ? "Recording…" : "Mark paid in cash"}</button>
       )}
+      {m.role !== "organizer" && (me || actor.role === "organizer") && (
+        <button onClick={() => (confirmLeave ? leave() : setConfirmLeave(true))} onBlur={() => setTimeout(() => setConfirmLeave(false), 150)} disabled={busy}
+          className={`mt-1 text-[11px] font-semibold hover:underline ${confirmLeave ? "text-bad" : "text-mute"}`}>
+          {confirmLeave ? "Tap again to ask the group" : me ? "Leave this kitty" : "Friend dropped out?"}
+        </button>
+      )}
+      {note && <p className="mt-1 text-[11px] text-ink-2">{note}</p>}
     </div>
   );
 }

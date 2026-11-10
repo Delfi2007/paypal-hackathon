@@ -10,6 +10,7 @@ import type {
   VendorCategory,
 } from "./types";
 import { fmt } from "./money";
+import { rebalancePreview } from "./rebalance";
 import { scan, scanFields, reason } from "./guard";
 
 export function poolBalance(k: Kitty): number {
@@ -202,6 +203,26 @@ export function evaluate(k: Kitty, action: AgentAction): PolicyResult {
         },
       ];
       return decide(checks, `Refund of ${fmt(amount, cur)}`);
+    }
+
+    case "drop_member": {
+      const pv = rebalancePreview(k, String(action.params.memberId ?? ""));
+      const checks: PolicyCheck[] = [
+        { rule: "Can leave", pass: pv.ok, detail: pv.ok ? `${pv.leaverName} leaves; ${pv.remaining} friends remain` : pv.reason ?? "Not allowed", severity: "block" },
+        {
+          rule: "Pool can refund them",
+          pass: !pv.ok || pv.refund <= poolBalance(k) + 0.001,
+          detail: pv.ok ? `Refund ${fmt(pv.refund, cur)} · pool holds ${fmt(poolBalance(k), cur)}` : "—",
+          severity: "block",
+        },
+        {
+          rule: "Shares change for everyone",
+          pass: false,
+          detail: pv.ok ? `${fmt(pv.oldShare, cur)} → ${fmt(pv.newShare, cur)} each (+${fmt(pv.increase, cur)}); ${fmt(pv.totalTopUp, cur)} of top-ups` : "—",
+          severity: "quorum",
+        },
+      ];
+      return decide(checks, `${pv.leaverName} leaves the kitty`);
     }
 
     case "void_payout": {

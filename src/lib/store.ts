@@ -129,6 +129,11 @@ async function persist(k: Kitty) {
         sql: "INSERT OR IGNORE INTO memberships (kitty_id, user_id) VALUES (?,?)",
         args: [k.id, m.id],
       })),
+      // a friend who dropped out no longer sees the kitty
+      {
+        sql: `DELETE FROM memberships WHERE kitty_id = ? AND user_id NOT IN (${k.members.map(() => "?").join(",") || "''"})`,
+        args: [k.id, ...k.members.map((m) => m.id)],
+      },
     ],
     "write",
   );
