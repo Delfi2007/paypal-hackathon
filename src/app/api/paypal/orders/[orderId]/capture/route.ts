@@ -1,6 +1,7 @@
 import { fail, needKitty, ok } from "@/lib/api";
 import { mutate } from "@/lib/store";
-import { captureOrder } from "@/lib/paypal";
+import { captureOrder, orderCustomId } from "@/lib/paypal";
+import { assertOrderOwnership } from "@/lib/orderGuard";
 import { recordContribution } from "@/lib/agent";
 import { convert } from "@/lib/money";
 
@@ -12,6 +13,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ orderId
     const out = await mutate(kittyId, async (k) => {
       const m = k.members.find((x) => x.id === me.id)!;
       const fallback = { amount: await convert(Math.max(0, m.share - m.paid), k.baseCurrency, m.currency), currency: m.currency };
+      // Verify ownership BEFORE capturing, so a member can never capture (or credit) someone else's order.
+      assertOrderOwnership(k, me, orderId, await orderCustomId(orderId));
       const cap = await captureOrder(orderId, fallback);
       if (cap.status !== "COMPLETED") throw new Error(`Payment not completed (${cap.status})`);
       m.orderId = orderId;

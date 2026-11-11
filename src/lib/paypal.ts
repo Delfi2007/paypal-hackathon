@@ -103,6 +103,14 @@ export interface CaptureResult {
   payerEmail?: string;
 }
 
+/** The custom_id Kitty stamped on the order when it was created ("kittyId:memberId"). Undefined for simulated orders. */
+export async function orderCustomId(orderId: string): Promise<string | undefined> {
+  if (!paypalConfigured() || orderId.startsWith("SIM-")) return undefined;
+  type O = { purchase_units?: { custom_id?: string }[] };
+  const j = await pp<O>(`/v2/checkout/orders/${encodeURIComponent(orderId)}`);
+  return j.purchase_units?.[0]?.custom_id;
+}
+
 export async function captureOrder(orderId: string, fallback: { amount: number; currency: Currency }): Promise<CaptureResult> {
   if (!paypalConfigured() || orderId.startsWith("SIM-"))
     return { id: orderId, status: "COMPLETED", captureId: sim("CAP"), ...fallback };
