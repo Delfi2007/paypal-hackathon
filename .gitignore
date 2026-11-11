@@ -42,5 +42,5 @@ next-env.d.ts
 .data/
 .env
 !.env.example
-demo/
+/demo/
 /.next-rec/
