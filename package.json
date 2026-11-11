@@ -10,7 +10,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "seed:judges": "node scripts/seed-judges.mjs",
-    "mcp": "node mcp/kitty-mcp.mjs"
+    "mcp": "node mcp/kitty-mcp.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "api:docs": "node scripts/gen-api-docs.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
