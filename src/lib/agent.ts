@@ -1,9 +1,10 @@
 // The agent loop: plan (LLM) → evaluate (policy) → execute (PayPal) or
 // escalate (group vote) → record (ledger). Each step is visible to the group.
 
-import type { AgentAction, Kitty, Member, Proposal } from "./types";
-import { evaluate, poolBalance, round2 } from "./policy";
-import { draftReminders, planCommand } from "./ai";
+import type { AgentAction, Kitty, Member, Proposal, Refund } from "./types";
+import { collected, evaluate, poolBalance, round2 } from "./policy";
+import { draftReminders, planCommand, summarizeTrip } from "./ai";
+import { refundShares } from "./closeout";
 import * as paypal from "./paypal";
 import { convert, fmt } from "./money";
 import { log, notify, uid } from "./store";
@@ -42,6 +43,8 @@ function title(k: Kitty, a: AgentAction): string {
       return "Send PayPal requests to everyone who owes";
     case "send_reminders":
       return "Send payment reminders";
+    case "close_out":
+      return "Close out the trip and return the leftover pool to everyone";
     case "amend_mandate":
       return `Amend mandate: ${Object.entries(p)
         .map(([key, v]) => `${key} → ${Array.isArray(v) ? v.join(", ") : v}`)
@@ -376,6 +379,52 @@ export async function execute(k: Kitty, action: AgentAction, ctx: { idem?: strin
         if (k.members.some((m) => m.paid < m.share && !m.invoiceId)) {
           try { await execute(k, { type: "request_contributions", params: {}, reasoning: "Top-ups after a friend dropped out" }); } catch { /* shown in the ledger by that step */ }
         }
+        break;
+      }
+      case "close_out": {
+        if (k.status !== "active") throw new Error("This kitty is not open");
+        const shares = refundShares(k);
+        if (!shares.length) throw new Error("Nothing left to return");
+        const idem = ctx.idem ?? `co${short(k.id)}`;
+        const collectedTotal = collected(k);
+        // Closed first, so nothing else can leave the pool while the refunds go out.
+        k.status = "closed";
+        const refunds: Refund[] = [];
+        const failed: string[] = [];
+        for (const s of shares) {
+          const m = k.members.find((x) => x.id === s.memberId)!;
+          const local = round2(await convert(s.base, k.baseCurrency, m.currency));
+          try {
+            // Reuses the member-refund path: PayPal refund of their own payment, idempotency key, ledger entry.
+            await execute(k, { type: "refund_member", params: { memberId: m.id, amount: s.base }, reasoning: "Leftover pool returned at close-out" }, { idem: `${idem}-rf${short(m.id)}` });
+            refunds.push({ memberId: m.id, name: m.name, base: s.base, local, currency: m.currency });
+          } catch {
+            failed.push(m.name); // already in the ledger as a failed refund; the rest still go out
+          }
+        }
+        if (!refunds.length) {
+          k.status = "active";
+          throw new Error("No refund could be sent; the kitty stays open");
+        }
+        const total = round2(refunds.reduce((s, x) => s + x.base, 0));
+        const base = {
+          closedAt: new Date().toISOString(),
+          collected: collectedTotal,
+          spent: k.spent,
+          refunded: total,
+          refunds,
+          failed: failed.length ? failed : undefined,
+          status: failed.length ? ("partial" as const) : ("complete" as const),
+          simulated: !paypal.paypalConfigured(),
+        };
+        k.closeOut = { ...base, summary: await summarizeTrip(k, base) };
+        log(k, {
+          actor: "agent",
+          kind: "info",
+          title: `Trip closed: ${fmt(total, k.baseCurrency)} returned to ${refunds.length} friend${refunds.length === 1 ? "" : "s"}`,
+          detail: failed.length ? `Refund failed for ${failed.join(", ")}: ${fmt(poolBalance(k), k.baseCurrency)} is still in the pool for the organiser to settle` : "Every refund went back to the way each friend paid",
+          reasoning: k.closeOut.summary,
+        });
         break;
       }
       case "amend_mandate": {
