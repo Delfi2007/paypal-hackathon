@@ -1,0 +1,37 @@
+# Render Blueprint: one web service, no other infrastructure needed.
+# New > Blueprint in the Render dashboard, pick this repo, and it deploys.
+# Every key below marked "sync: false" is optional: without PayPal or Gemini keys the app
+# runs with simulated PayPal calls and a rule-based agent, and the one-click demo still works.
+services:
+  - type: web
+    name: kitty
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/status
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      # PayPal sandbox REST app (enable Invoicing and Payouts on it)
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      # Google AI Studio key for the agent
+      - key: KITTY_GEMINI_KEY
+        sync: false
+      # Turso database. Without it the app uses a SQLite file on the instance's disk,
+      # which is wiped on every deploy or restart (fine for a demo, not for real groups).
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: CHANNEL3_API_KEY
+        sync: false
